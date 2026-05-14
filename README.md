@@ -17,17 +17,15 @@ Claude Code (Orchestrator) ─┬─ Codex CLI       (pre-run review, debugging,
 - **3 execution targets** — `sim`, `device`, `hil`. A sim-precompute-then-device-playback workflow is modeled as two runs sharing an `experiment_family`
 - **HPC scheduler aware** — `compute_target: cluster` captures Slurm/PBS/LSF/SGE/Kubernetes job metadata
 
----
+## Scope
 
-## このテンプレートは何のため？
+This template is for projects where **the experimental codebase and its recorded runs are the deliverable** — CFD solvers, robot controllers, MEMS measurement, numerical-method benchmarks, HIL test rigs. Writing a paper is allowed but not the centerpiece; `/write-report` ships as an optional output skill. For paper-centric research (literature review → IMRaD → peer review → submission), use the sibling template [`claude-research`](https://github.com/ohayotaro/claude-research) instead.
 
-`claude-research` が **論文を最終成果物**にした研究テンプレなのに対し、本テンプレートは **実験コード自体（と再現可能な run の記録）が成果物** となるプロジェクト向けです。CFD ソルバ開発、ロボット制御、MEMS 計測、数値手法ベンチマーク、HIL 試験など、論文化が optional なワークフロー全般を想定しています。
-
-論文を出すこと自体は妨げません（`/write-report` skill が次フェーズで来ます）が、パイプラインの中心は **build → run → collect → analyze** であって lit-review → hypothesis → IMRaD ではありません。
+The pipeline is `design → build → run → collect → analyze → (optional) report`, not `lit-review → hypothesis → IMRaD`.
 
 ## Quick start
 
-前提ツールは下記 [Prerequisites](#prerequisites)。プロジェクトディレクトリで:
+Install prerequisites first (see [Prerequisites](#prerequisites)). Then, in your project directory:
 
 ```bash
 cd /path/to/your-project
@@ -37,28 +35,24 @@ git clone --depth 1 https://github.com/ohayotaro/claude-experiment.git .starter 
 claude
 ```
 
-Claude Code 起動後:
+Inside Claude Code:
 
 ```
-/init-experiment    # domain / project_name / objective / runtime / execution_target / scheduler / safety owner
+/init-experiment    # domain / project_name / objective / runtime / execution_target /
+                    # compute_target / scheduler / safety owner / viz preference
 ```
 
-ウィザード完了後:
+After the wizard, `CLAUDE.md` Zone B describes your project, `src/utils/{repro.py,viz.py}` are placed from `.claude/templates/python-uv/` (regardless of the resolved runtime — analysis still runs in Python), and `docs/`, `src/`, `data/`, `tests/`, `notebooks/` are scaffolded. The standard `data/` layout includes `data/builds/`, `data/calibrations/`, and `data/locks/` for native builds and device/HIL workflows.
 
-- `CLAUDE.md` Zone B にプロジェクト情報が記録され、`status: initialized` になります
-- `src/utils/{repro.py,viz.py}` が `.claude/templates/python-uv/` から配置されます（runtime に関わらず Python 製ヘルパは常時必要）
-- `docs/`, `src/`, `data/`, `tests/`, `notebooks/` をスキャフォールドします
-- `data/builds/`, `data/calibrations/`, `data/locks/` も作成します（device/HIL を使わなくても layout は同じ）
-
-その後の流れ:
+Subsequent flow:
 
 ```
-/design-experiment <id>      # 実験 1 件を Zone B registry に登録
-/review-script <path>        # 実行前レビュー（device/HIL は cleanup handler 必須）
-/build-experiment <id>       # native runtime のみ（python-uv はスキップ）
-/run-experiment <id>         # authoritative preflight + 実行 + metadata 完全記録
-/analyze-results <run_id>    # 事前登録した解析（inference_kind に応じて統計厳格化）
-/review-figures <run_id>     # Gemini で図のチェック
+/design-experiment <id>      # register one experiment in Zone B `experiments:`
+/review-script <path>        # pre-run review (cleanup-handler check for device/HIL)
+/build-experiment <id>       # native runtimes only (python-uv → uv sync)
+/run-experiment <id>         # authoritative preflight + execution + metadata
+/analyze-results <run_id>    # pre-registered analysis (honors inference_kind)
+/review-figures <run_id>     # Gemini-backed multimodal critique
 ```
 
 ## Prerequisites
@@ -80,7 +74,7 @@ Native runtimes additionally need (per-experiment basis):
 | `rust-cargo` | `rustc ≥1.80` / `cargo` |
 | `make` | GNU make + whatever the Makefile invokes |
 
-Codex / Gemini は推奨ですが必須ではありません。Codex が無いと `/review-script`, `/ask-codex`, `codex-debugger` の品質が落ちます。Gemini が無いと `/review-figures`, `/ask-gemini` が `status: blocked` を返します。
+Codex and Gemini are recommended but not blocking. Without Codex, `/review-script`, `/ask-codex`, and `codex-debugger` fall back to Opus subagents acting as critics (weaker). Without Gemini, `/review-figures` and `/ask-gemini` emit `status: blocked` and the orchestrator decides.
 
 ## What gets copied into your project
 
@@ -90,23 +84,19 @@ your-project/
 ├── pyproject.toml                  # uv non-package mode + dev deps
 ├── .gitignore                      # data/raw, data/processed, .venv/, in-tree build/
 ├── .claude/
-│   ├── settings.json               # hook wiring
+│   ├── settings.json               # hook wiring (PostToolUseFailure, PreToolUse Bash, ${CLAUDE_PROJECT_DIR})
 │   ├── routing-keywords.json
-│   ├── rules/   (6 .md)            # integrity / repro / safety-hil / stats / routing / language
-│   ├── hooks/   (7 .py)            # agent-router, error-to-codex, log-cli-tools,
-│   │                               #   reproducibility-check, safety-check,
-│   │                               #   session-start, session-end
-│   ├── agents/  (8 .md)            # experiment-runner, build-engineer, device-operator,
-│   │                               #   data-analyst, script-reviewer, viz-reviewer,
-│   │                               #   codex-debugger, gemini-explore
-│   ├── skills/  (11 SKILL.md)      # 5 core + 6 operations / adapters
+│   ├── rules/                      # 6 domain rules
+│   ├── hooks/                      # 7 Python hooks
+│   ├── agents/                     # 8 role-based agents
+│   ├── skills/                     # 11 skill definitions
 │   └── templates/                  # repro.py + viz.py + per-runtime build stubs
 └── docs/research/                  # methodology, analysis, incidents, hardware/<id>.md
 ```
 
-`docs/`, `src/`, `data/`, `tests/`, `notebooks/` are scaffolded by `/init-experiment` and never owned by template updates after that.
+`docs/`, `src/`, `data/`, `tests/`, `notebooks/` are scaffolded by `/init-experiment` and left alone afterward. The template owns nothing outside the four paths above plus `CLAUDE.md` Zone A.
 
-## Reproducibility contract (highlights)
+## Reproducibility contract
 
 Every run produces `data/results/<run_id>/`:
 
@@ -138,7 +128,7 @@ For any run with resolved `execution_target ∈ {device, hil}`, enforcement is l
 
 Three escape hatches: `--dry-run` (recorded as `metadata.device.dry_run`), `safety_class: none` (declares a read-only experiment), and `--override-safety=<check>:<reason>` (single-check, logged, requires `hil_safety_owner` to confirm interactively). The lock check and operator-confirmation check cannot be overridden.
 
-> **Phase availability** — the sim path is fully operational today. Device / HIL paths additionally require `/lock-device`, `/calibrate-device`, and `/collect-data` skills, which ship in the next batch. Until then, a device / HIL `/run-experiment` invocation aborts cleanly at the lock or calibration check; no unsafe launch is possible.
+The sim path is fully operational today. The device / HIL paths additionally require `/lock-device`, `/calibrate-device`, and `/collect-data` skills, which ship in the next batch. Until then a device / HIL `/run-experiment` invocation aborts cleanly at the lock or calibration check; no unsafe launch is possible.
 
 ## Skills
 
@@ -214,6 +204,12 @@ Every agent emits a YAML `handoff:` block (schema in `.claude/rules/agent-routin
 │  Opus Subagent: data-analyst (statistics + plotting)       │
 └────────────────────────────────────────────────────────────┘
 ```
+
+- **Codex** receives English-only structured prompts and returns severity-tagged comments (`blocker | major | minor | nit`) with `id`, `category`, `comment`, `suggested_fix` per issue.
+- **Gemini** receives multimodal input (URLs, file paths) and returns markdown with explicit source URLs / DOIs, or strict JSON when the caller specifies.
+- **Sonnet subagents** are role-named (e.g. `experiment-runner`, `build-engineer`), runtime-aware via Zone B Resolution.
+- All agents emit a YAML `handoff:` block (schema in `.claude/rules/agent-routing.md`) with `agent`, `status`, `artifacts`, `recommended_next` so the orchestrator can plan downstream work.
+- When an external CLI is unavailable, agents emit `status: blocked` — they never silently degrade. The orchestrator decides whether to fall back, ask the user to install the CLI, or pause.
 
 ## Language protocol
 
