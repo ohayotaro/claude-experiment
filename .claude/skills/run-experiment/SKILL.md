@@ -9,6 +9,8 @@ inputs:
   - --build-id <id> (optional — overrides the latest matching build; ignored for python-uv)
   - --dry-run (device/HIL only — runs in safe mode, no actuation; satisfies the dry-run rehearsal precondition)
   - --override-safety=<check_name>:<reason> (last-resort, single-check, logged; requires hil_safety_owner to confirm)
+  - --sweep-id <id> (set by /sweep-experiment per run — stamps `metadata.sweep_id`; the user does NOT typically pass this manually)
+  - --sweep-index <i> (set by /sweep-experiment per run — informational; also stamped into args)
 outputs:
   - data/results/<run_id>/ (metadata.json, config.snapshot.yaml, log.txt, results/, telemetry/ if device/HIL, cleanup_log.txt if device/HIL)
 delegated_agent: experiment-runner (sim) | experiment-runner + device-operator (device/HIL)
@@ -19,14 +21,12 @@ next_skill: /analyze-results
 
 This skill is the **authoritative preflight layer** per `.claude/rules/safety-hil.md`. The `safety-check` hook is a coarse gate; this skill verifies every precondition before delegating execution.
 
-> **Availability** — the sim path is fully operational with the core skills
-> shipped first. The device / HIL paths additionally require `/lock-device`
-> (lock acquisition), `/calibrate-device` (calibration production), and
-> `/collect-data` (post-run telemetry ingestion), which ship in a later
-> batch. Until those skills are present in `.claude/skills/`, a device or
-> HIL `/run-experiment` invocation aborts cleanly at §8.1 (lock not held) or
-> §8.2 (calibration_ref missing). The skill itself is correct; only the
-> prerequisite skills are not yet in the template.
+> **Availability** — sim, device, and HIL paths are all operational. The
+> device / HIL workflow requires `/lock-device <device_id>` to acquire the
+> lock first and `/calibrate-device <experiment_id>` to produce a fresh
+> calibration before this skill will pass §8. If either is missing, the
+> preflight aborts cleanly with the matching remediation skill named in the
+> error message.
 
 ## Steps
 
@@ -38,7 +38,7 @@ This skill is the **authoritative preflight layer** per `.claude/rules/safety-hi
    [resolution] field=compute_target source=cli value=cluster
    ```
    The same log lines are persisted to the run's `log.txt`.
-3. **Allocate `run_id`** as `<UTC ISO-8601 with hyphens>_<8-char hash>` (per `reproducibility.md` §1, e.g. `2026-05-14T12-34-56_a1b2c3d4`). Create `data/results/<run_id>/`.
+3. **Allocate `run_id`** as `<UTC ISO-8601 with hyphens>_<8-char hash>` (per `reproducibility.md` §1, e.g. `2026-05-14T12-34-56_a1b2c3d4`). Create `data/results/<run_id>/`. If `--sweep-id` was passed, record the sweep_id and the sweep_index in `args` so `repro.write_initial_metadata` stamps them into `metadata.sweep_id` and `metadata.args.sweep_index`.
 4. **Resolve the config**:
    - Load `--config <path>` if passed; else the experiment's `config.example.yaml`.
    - Apply CLI overrides (e.g. `--seed`).
@@ -52,7 +52,7 @@ This skill is the **authoritative preflight layer** per `.claude/rules/safety-hi
 7. **Write initial metadata** to `data/results/<run_id>/metadata.json` via `src/utils/repro.write_initial_metadata(...)`. This populates everything known before launch (top-level + the appropriate target block skeleton).
 8. **For `execution_target ∈ {device, hil}`, perform the authoritative safety preflight per `safety-hil.md` §1**:
    1. **Lock verification.** Read `data/locks/<device_id>.lock` (and `data/locks/<bench_id>.lock` for HIL). Verify it is held by this session's PID chain. If not, abort with `status: blocked` and suggest `/lock-device <device_id>`.
-   2. **Calibration freshness.** Read the most recent `data/calibrations/<calibration_ref>.meta.json` for this `device_id`. Verify `calibration_age_h <= tolerance` (default 24h or per-experiment override in methodology). On stale, abort with a suggestion to `/calibrate-device`.
+   2. **Calibration freshness.** Read the most recent `data/calibrations/<calibration_ref>.meta.json` for this `device_id` (`calibration_ref` is device-scoped per `/calibrate-device`). Verify `calibration_age_h <= tolerance` (default 24h or per-experiment override in methodology). On stale, abort with the explicit remediation `/calibrate-device <experiment_id>`.
    3. **(HIL) Interlocks armed.** Read `data/locks/<bench_id>.selfcheck.json`. Verify `interlocks.e_stop_armed == true`, `watchdog_ms_used <= watchdog_ms_max`, file mtime within last hour. On failure, request `device-operator` to re-run the self-check (skill A in the agent's workflow).
    4. **Dry-run rehearsal equivalence.** If `safety_class ∈ {calibration-required, destructive}` AND `--dry-run` is NOT set: scan `data/results/*/metadata.json` for a run with same `experiment_id`, `device.dry_run == true` (per the schema in reproducibility.md §2.3), `exit_state: success`, `config_snapshot_sha256` matching this run's, and `started_at` within the last 24h. If none, abort with a clear message asking the user to first run `/run-experiment <id> --dry-run`. Record the matched `run_id` in `metadata.device.dry_run_rehearsal_run_id`.
    5. **Operator-in-loop confirmation** (`safety_class: destructive` only). Issue an `AskUserQuestion` to the user requiring an explicit "proceed" / "abort". Record the ISO-8601 UTC timestamp in `metadata.device.operator_confirmation_at`. If aborted, write `exit_state: aborted`, finalize, and return.

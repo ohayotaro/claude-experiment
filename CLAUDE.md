@@ -158,7 +158,10 @@ compute:
 experiments: []
 # Required fields per entry: id, entrypoint, runtime, execution_target,
 # compute_target, safety_class.
-# Optional fields per entry: family, config_schema, device_id, bench_id.
+# Optional fields per entry: family, config_schema, device_id, bench_id,
+# calibration_script (override of src/experiments/<id>/device/calibrate.py),
+# processors (list of {name, script} for /collect-data; first entry is the
+# default when /collect-data is called without --processor).
 # Example entry:
 #   - id: solver-baseline
 #     family: solver-accuracy

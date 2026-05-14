@@ -10,7 +10,7 @@ Claude Code (Orchestrator) ─┬─ Codex CLI       (pre-run review, debugging,
 ```
 
 - **8 role-based agents** — `experiment-runner`, `build-engineer`, `device-operator`, `data-analyst`, `script-reviewer`, `viz-reviewer`, `codex-debugger`, `gemini-explore`
-- **11 core skills** shipped today (`init-experiment`, `design-experiment`, `build-experiment`, `run-experiment`, `analyze-results`, plus `review-script`, `review-figures`, `lint`, `checkpoint`, `ask-codex`, `ask-gemini`); device/HIL helpers (`lock-device`, `calibrate-device`, `collect-data`, `sweep-experiment`, `write-report`) ship next
+- **16 skills** across 4 buckets — 5 pipeline (`init-experiment` → `design-experiment` → `build-experiment` → `run-experiment` → `analyze-results`), 4 device/HIL helpers (`lock-device`, `calibrate-device`, `collect-data`, `sweep-experiment`), 4 operations (`review-script`, `review-figures`, `lint`, `checkpoint`), 3 output / adapters (`write-report`, `ask-codex`, `ask-gemini`)
 - **6 rules** for research integrity, statistical rigor, reproducibility, safety (HIL hard rule), agent routing, and language policy
 - **7 hooks** — agent router, CLI logger, error→codex, reproducibility check, **safety check** (blocks unsafe device/HIL Bash launches), session-start (with orphan-run reaper), session-end (with held-lock warning)
 - **3 runtimes** at v1 — Python (`uv`), C++ (`cmake`), Rust (`cargo`) plus a generic `make` slot. Native binaries get content-addressable `build_id`s under `data/builds/<build_id>/`
@@ -44,15 +44,20 @@ Inside Claude Code:
 
 After the wizard, `CLAUDE.md` Zone B describes your project, `src/utils/{repro.py,viz.py}` are placed from `.claude/templates/python-uv/` (regardless of the resolved runtime — analysis still runs in Python), and `docs/`, `src/`, `data/`, `tests/`, `notebooks/` are scaffolded. The standard `data/` layout includes `data/builds/`, `data/calibrations/`, and `data/locks/` for native builds and device/HIL workflows.
 
-Subsequent flow:
+Subsequent flow. Argument conventions: `<experiment_id>` matches an entry in Zone B `experiments:`; `<device_id|bench_id>` matches the lock file name under `data/locks/`. The two are intentionally distinct — multiple experiments can share one device.
 
 ```
-/design-experiment <id>      # register one experiment in Zone B `experiments:`
-/review-script <path>        # pre-run review (cleanup-handler check for device/HIL)
-/build-experiment <id>       # native runtimes only (python-uv → uv sync)
-/run-experiment <id>         # authoritative preflight + execution + metadata
-/analyze-results <run_id>    # pre-registered analysis (honors inference_kind)
-/review-figures <run_id>     # Gemini-backed multimodal critique
+/design-experiment <experiment_id>          # register an experiment
+/review-script <path>                        # pre-run strict review (cleanup-handler check for device/HIL)
+/build-experiment <experiment_id>            # native runtimes only (python-uv → uv sync)
+/lock-device <device_id|bench_id>            # device / HIL only — acquire the lock
+/calibrate-device <experiment_id>            # device / HIL only — fresh calibration sidecar
+/run-experiment <experiment_id>              # authoritative preflight + execution + metadata
+   ↳ /sweep-experiment <experiment_id> ...   # alt. — N runs sharing one sweep_id
+/collect-data <run_id> | --sweep <sweep_id>  # optional — ingest raw outputs into data/processed/
+/analyze-results <run_id> | --sweep <id>     # pre-registered analysis (honors inference_kind)
+/review-figures <run_id>                     # Gemini-backed multimodal critique
+/write-report --scope <run_id|sweep_id|project>   # optional — memo / data card / paper
 ```
 
 ## Prerequisites
@@ -89,7 +94,7 @@ your-project/
 │   ├── rules/                      # 6 domain rules
 │   ├── hooks/                      # 7 Python hooks
 │   ├── agents/                     # 8 role-based agents
-│   ├── skills/                     # 11 skill definitions
+│   ├── skills/                     # 16 skill definitions
 │   └── templates/                  # repro.py + viz.py + per-runtime build stubs
 └── docs/research/                  # methodology, analysis, incidents, hardware/<id>.md
 ```
@@ -128,26 +133,30 @@ For any run with resolved `execution_target ∈ {device, hil}`, enforcement is l
 
 Three escape hatches: `--dry-run` (recorded as `metadata.device.dry_run`), `safety_class: none` (declares a read-only experiment), and `--override-safety=<check>:<reason>` (single-check, logged, requires `hil_safety_owner` to confirm interactively). The lock check and operator-confirmation check cannot be overridden.
 
-The sim path is fully operational today. The device / HIL paths additionally require `/lock-device`, `/calibrate-device`, and `/collect-data` skills, which ship in the next batch. Until then a device / HIL `/run-experiment` invocation aborts cleanly at the lock or calibration check; no unsafe launch is possible.
+Sim, device, and HIL paths are all operational. For device/HIL, run `/lock-device <id>` to acquire the lock, `/calibrate-device <id>` to produce a fresh calibration, then `/run-experiment <id>`. Each non-sim run aborts cleanly if any precondition fails; no unsafe launch is possible.
 
 ## Skills
 
-11 skills shipped today. Full spec for each is at `.claude/skills/<name>/SKILL.md`. The "Owner" column lists the agent or external CLI that performs the heavy work; the orchestrator drives the flow but does not implement.
+16 skills organized by bucket. Full spec for each is at `.claude/skills/<name>/SKILL.md`. The "Owner" column lists the agent or external CLI that performs the heavy work; the orchestrator drives the flow but does not implement.
 
-### Setup
+### Pipeline
 
 | Skill | Purpose | Owner |
 |---|---|---|
 | `/init-experiment` | Domain, project name, objective, runtime, execution_target_default, compute_target, scheduler, safety owner. Populates Zone B and copies starter scripts into `src/utils/`. | — |
 | `/design-experiment <id>` | Register one experiment in `experiments:` registry; write per-experiment methodology section; scaffold `src/experiments/<id>/`. | — |
-
-### Build / Run / Analyze
-
-| Skill | Purpose | Owner |
-|---|---|---|
 | `/build-experiment [<id>]` | Native runtimes: produce `data/builds/<build_id>/manifest.json` with full toolchain provenance; reuse on input match. `python-uv`: `uv sync` only. | build-engineer |
 | `/run-experiment [<id>]` | Authoritative preflight (incl. `safety-hil.md` §1 for device/HIL) + execution. Writes `data/results/<run_id>/`. | experiment-runner (+ device-operator on device/HIL) |
 | `/analyze-results <run_id>` | Pre-registered analysis honoring `inference_kind` from methodology. Appends to `docs/research/analysis.md`; generates figures via `src/utils/viz.py`. | data-analyst |
+
+### Device / HIL helpers
+
+| Skill | Purpose | Owner |
+|---|---|---|
+| `/lock-device <id>` | Acquire `data/locks/<id>.lock` for a device or HIL bench. Required by `safety-check` before any device run. Breaks stale locks (dead PID) with two-layer confirmation. | — |
+| `/calibrate-device <id>` | Run the experiment's calibration script under `device-operator`, save artefact + sidecar to `data/calibrations/`. | device-operator |
+| `/collect-data <run_id>` or `/collect-data --sweep <sweep_id>` | Post-run ingestion of raw telemetry into `data/processed/`. Idempotent (cache-hit check runs before the processor). | data-analyst (processor) |
+| `/sweep-experiment <id>` | Parameter sweep (grid / list / random) producing run_ids grouped under a shared `sweep_id`. Serial on device/HIL, parallel-capable on sim. | orchestrator (+ experiment-runner per run) |
 
 ### Operations
 
@@ -158,22 +167,13 @@ The sim path is fully operational today. The device / HIL paths additionally req
 | `/lint` | Run `ruff` + `mypy` + `pytest` on touched modules. | — |
 | `/checkpoint` | Snapshot current phase, last `run_id` / `build_id`, held locks, recent artifacts, next action into Zone C. | — |
 
-### Adapters
+### Output / adapters
 
 | Skill | Purpose | Owner |
 |---|---|---|
+| `/write-report` | Optional output: technical memo, data card, or paper (per Zone B `reports.default_kind`). Never auto-submits. | data-analyst + orchestrator |
 | `/ask-codex` | One-shot Codex call for quick logical / statistical sanity checks. Does not write to `docs/`. | Codex |
 | `/ask-gemini` | One-shot Gemini call for datasheet / manual / figure lookups. Does not write to `docs/`. | Gemini |
-
-### Next batch (work in progress)
-
-| Skill | Purpose |
-|---|---|
-| `/lock-device <id>` | Acquire `data/locks/<id>.lock` for a device or HIL bench. Required by safety-check before any device run. |
-| `/calibrate-device <id>` | Run the experiment's calibration script, save artefact to `data/calibrations/<ref>.<ext>`, record metadata sidecar. |
-| `/collect-data <run_id>` | Post-run ingestion of raw telemetry into `data/processed/`. |
-| `/sweep-experiment <id>` | Parameter sweep producing run_ids grouped under a `sweep_id`. |
-| `/write-report` | Optional output: technical memo, data card, or paper (per Zone B `reports.default_kind`). |
 
 ## Agents
 

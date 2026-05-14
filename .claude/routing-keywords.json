@@ -87,6 +87,14 @@
     "/calibrate-device": [
       "calibrate", "recalibrate", "calibration run",
       "校正", "再校正"
+    ],
+    "/collect-data": [
+      "ingest", "preprocess", "normalize", "raw to processed",
+      "テレメトリ整形", "前処理", "data/processed"
+    ],
+    "/write-report": [
+      "write a memo", "data card", "draft a report", "publish",
+      "tech memo", "メモを書いて", "データカード", "レポート"
     ]
   }
 }
