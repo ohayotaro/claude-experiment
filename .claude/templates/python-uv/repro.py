@@ -312,34 +312,67 @@ def _scheduler_block(kind: str) -> dict[str, Any]:
 
 # --- target blocks ------------------------------------------------------
 
-def _sim_block(seed: int | None) -> dict[str, Any]:
-    blk: dict[str, Any] = {}
-    if seed is not None:
-        blk["seed"] = seed
-    blk["python_version"] = _python_version()
-    blk["package_versions"] = _package_versions()
-    return blk
+def _sim_block(
+    seed: int | None, seeds_resolved: dict[str, int] | None = None
+) -> dict[str, Any]:
+    """Schema-complete initial sim block per reproducibility.md §2.2.
+
+    `seed` is required; `seeds_per_framework` is the dict returned by
+    set_seed(); python_version + package_versions are sampled now. GPU
+    metadata is added later by patch_metadata if the driver detects GPU
+    usage.
+    """
+    return {
+        "seed": seed,
+        "seeds_per_framework": seeds_resolved or {},
+        "python_version": _python_version(),
+        "package_versions": _package_versions(),
+        "mpi_runtime": None,
+        "solver_version": None,
+        "gpu": None,
+        "cuda_version": None,
+        "determinism_caveats": None,
+    }
 
 
 def _device_block(experiment_entry: dict[str, Any]) -> dict[str, Any]:
-    """Initial device block. Only the orchestrator-knowable subset is filled
-    here; device-operator fills the rest later via patch_metadata.
+    """Schema-complete initial device block.
+
+    Pre-populates every required key (per reproducibility.md §2.3) with
+    null placeholders so the schema is structurally valid from launch. The
+    /run-experiment skill and device-operator overwrite real values via
+    patch_metadata before the device is actuated. Pre-populating means a
+    crash between write_initial_metadata and the first patch leaves a
+    well-formed (if device-unspecified) metadata.json — the reproducibility
+    validator won't complain about missing keys.
     """
     device_id = experiment_entry.get("device_id")
     if not device_id:
         return {}
     return {
         "device_id": device_id,
+        "device_model": None,
+        "firmware_rev": None,
+        "calibration_ref": None,
+        "calibration_age_h": None,
+        "ambient": None,
+        "operator": None,
         "lock_path": f"data/locks/{device_id}.lock",
+        "dry_run": False,
+        "safety_overrides": [],
     }
 
 
 def _hil_block(
     experiment_entry: dict[str, Any], config_snapshot: dict[str, Any] | None
 ) -> dict[str, Any]:
-    """Initial HIL block. Reads hil.coupling_mode, hil.sample_rate_hz,
-    hil.simulator from the resolved config snapshot if present. The bench
-    self-check and interlocks are added later by device-operator.
+    """Schema-complete initial HIL block.
+
+    Required keys per reproducibility.md §2.4: bench_id, bench_lock_path,
+    coupling_mode, sample_rate_hz, interlocks, bench_selfcheck_path,
+    simulator. coupling_mode / sample_rate_hz / simulator come from the
+    resolved config snapshot (config_schema enforces their presence).
+    interlocks and bench_selfcheck_path are filled later by device-operator.
     """
     bench_id = experiment_entry.get("bench_id")
     if not bench_id:
@@ -347,6 +380,11 @@ def _hil_block(
     blk: dict[str, Any] = {
         "bench_id": bench_id,
         "bench_lock_path": f"data/locks/{bench_id}.lock",
+        "coupling_mode": None,
+        "sample_rate_hz": None,
+        "interlocks": None,
+        "bench_selfcheck_path": None,
+        "simulator": None,
     }
     if config_snapshot:
         hil_cfg = config_snapshot.get("hil", {})
@@ -376,21 +414,30 @@ def write_initial_metadata(
     """
     run_dir = _run_dir(run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
-    # Resolve the snapshot path. Accept either:
-    #   (a) absolute path
-    #   (b) path relative to project root (CWD when invoked normally)
-    #   (c) path relative to run_dir (just the basename, e.g. "config.snapshot.yaml")
+    # The config snapshot MUST live inside run_dir (per reproducibility.md §1
+    # — config.snapshot.yaml is part of the immutable run directory). The
+    # caller is responsible for placing the resolved config there before
+    # calling this helper. We accept either:
+    #   (a) just the basename, e.g. "config.snapshot.yaml" (interpreted
+    #       relative to run_dir)
+    #   (b) an absolute path that resolves to inside run_dir
+    # Anything else is a contract violation and we raise — recording an
+    # absolute external path silently would defeat the immutability guarantee.
     raw = Path(config_snapshot_path)
     if raw.is_absolute():
-        snap_path = raw
-    elif raw.exists():
         snap_path = raw.resolve()
-    elif (run_dir / raw).exists():
-        snap_path = (run_dir / raw).resolve()
     else:
-        raise FileNotFoundError(
-            f"config snapshot not found at any of: {raw} (cwd), {run_dir / raw}"
-        )
+        snap_path = (run_dir / raw).resolve()
+    try:
+        rel_snap = snap_path.relative_to(run_dir.resolve())
+    except ValueError as e:
+        raise ValueError(
+            f"config_snapshot_path must live inside run_dir; "
+            f"got {snap_path} which is outside {run_dir.resolve()}. "
+            "Copy the resolved config into the run directory first."
+        ) from e
+    if not snap_path.exists():
+        raise FileNotFoundError(f"config snapshot not found: {snap_path}")
     config_snapshot_sha256 = hash_file(snap_path)
 
     # Also read the snapshot to source HIL config fields.
@@ -431,15 +478,19 @@ def write_initial_metadata(
         "script": script_path,
         "entrypoint_sha256": entrypoint_sha256,
         "args": args,
-        "config_snapshot_path": snap_path.relative_to(run_dir).as_posix() if snap_path.is_relative_to(run_dir) else str(snap_path),
+        "config_snapshot_path": rel_snap.as_posix(),
         "config_snapshot_sha256": config_snapshot_sha256,
         "build_id": build_id,
         "compute_target": compute_target,
         "platform": _platform_string(),
     }
 
+    seeds_resolved = args.get("seeds_resolved") if isinstance(args, dict) else None
     if execution_target == "sim":
-        md["sim"] = _sim_block(seed=args.get("seed"))
+        md["sim"] = _sim_block(
+            seed=args.get("seed") if isinstance(args, dict) else None,
+            seeds_resolved=seeds_resolved if isinstance(seeds_resolved, dict) else None,
+        )
     elif execution_target == "device":
         md["device"] = _device_block(experiment_entry)
     elif execution_target == "hil":

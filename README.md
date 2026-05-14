@@ -117,7 +117,7 @@ cleanup_log.txt        # device / HIL only
 
 `metadata.json` records, on top of the obvious fields, `pid`, `entrypoint_sha256`, `config_snapshot_sha256`, and (for native runs) a `build_id` cross-reference to `data/builds/<build_id>/manifest.json`. The full schema and per-field writer responsibility are in `.claude/rules/reproducibility.md` §§2, 3, 9.
 
-Native builds are content-addressable: same source + same toolchain ⇒ same `build_id` (cache hit, no rebuild). The manifest records `compiler_version`, `build_flags`, `mpi.version`, `container.digest`, every produced binary's SHA-256, and a smoke-test result.
+Native builds are content-addressable: same source + same toolchain ⇒ same `build_id` (cache hit, no rebuild). `build_id` is a pure 16-character lowercase hex digest of the inputs — no timestamp, so identical inputs always collide on the cache. Wall-clock lives in `manifest.started_at` / `finished_at`. The manifest records `compiler_version`, `build_flags`, `mpi.version`, `container.digest`, every produced binary's SHA-256, and a smoke-test result.
 
 The `reproducibility-check` hook validates run metadata and build manifests on every write under `data/results/` or `data/builds/`. The orphan-run reaper in `session-start.py` patches `exit_state: interrupted` onto runs whose wrapper died before `finalize_metadata` could be called.
 

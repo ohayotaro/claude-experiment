@@ -96,7 +96,7 @@ _INFRASTRUCTURE_RCPARAMS: dict[str, Any] = {
     "image.cmap": "viridis",
 }
 
-# ----- Style profiles (edit freely after /init-research copies this file) --
+# ----- Style profiles (edit freely after /init-experiment copies this file) -
 #
 # Each profile is a dict of matplotlib rcParams. Profiles are merged on top
 # of _INFRASTRUCTURE_RCPARAMS; later additions to a profile win. Add your

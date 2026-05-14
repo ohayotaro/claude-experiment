@@ -54,15 +54,18 @@ Record container/image if used (`docker inspect <image> --format '{{.RepoDigests
 
 ### 2. Compute the candidate build_id
 
-The `build_id` is content-addressable: `<UTC ISO compact>_<8-char hash>` where the hash is over:
+`build_id` is **purely content-addressable**: a 16-character lowercase hex
+prefix of SHA-256 over the inputs (no timestamp — wall-clock lives in
+`manifest.started_at`/`finished_at`). The inputs are:
 
-- `git rev-parse HEAD` (with `-dirty` suffix when working tree is dirty)
-- Sorted list of tracked source paths + their SHA-256
-- Resolved compiler / linker / cmake / mpi versions and paths
-- Build flags (release / debug / sanitizer mix)
-- Container image digest (if any)
+- `source_tree_hash` from `repro.compute_source_tree_hash()` (sorted tracked
+  source paths + their SHA-256). This is independent of `git rev-parse HEAD`
+  so a dirty tree at the same commit yields a different `build_id`.
+- Resolved compiler / linker / cmake / mpi versions and paths.
+- Build flags (release / debug / sanitizer mix).
+- Container image digest (if any).
 
-If an existing `data/builds/<candidate_build_id>/manifest.json` matches the inputs hash, **reuse it** and skip the build (unless `--rebuild`). Log this: `[build-engineer] reusing build_id=<id> (inputs identical)`.
+If an existing `data/builds/<candidate_build_id>/manifest.json` matches, **reuse it** and skip the build (unless `--rebuild`). Log this: `[build-engineer] reusing build_id=<id> (inputs identical)`. Same inputs MUST yield the same `build_id` — this is the cache-hit guarantee that the user relies on; if you see two distinct ids for what appears to be identical input, one of the input components is actually different (toolchain path / container digest / build flags).
 
 ### 3. Build
 

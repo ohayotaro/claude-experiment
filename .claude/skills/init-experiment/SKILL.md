@@ -66,7 +66,7 @@ Initializes an experimental codebase from the orchestrator template. The orchest
      - For `make`: same Python helpers + a top-level `Makefile` stub.
      - For `mixed`: same Python helpers; native bootstrap is deferred to `/design-experiment` per experiment.
 
-     `repro.py` implements the four public functions in `.claude/rules/reproducibility.md` §9.3 (`write_initial_metadata`, `patch_metadata`, `finalize_metadata`, `hash_file`) plus the secondary read helpers (`read_build_manifest`, `verify_binary_hash`, `compute_source_tree_hash`).
+     `repro.py` implements the six public functions in `.claude/rules/reproducibility.md` §9.3 (`make_run_id`, `set_seed`, `hash_file`, `write_initial_metadata`, `patch_metadata`, `finalize_metadata`) plus the three secondary read helpers (`read_build_manifest`, `verify_binary_hash`, `compute_source_tree_hash`).
    - `tests/test_smoke.py` — imports each src module to check the package is wired.
    - `data/raw/.gitkeep`, `data/processed/.gitkeep`, `data/results/.gitkeep`, `data/builds/.gitkeep`, `data/calibrations/.gitkeep`, `data/locks/.gitkeep`, `notebooks/.gitkeep`.
    - `.gitignore` from `.claude/templates/<runtime>/.gitignore` if it exists, else a generic one (always ignore: `build/`, `target/`, `__pycache__/`, `*.pyc`, `.venv/`, `data/raw/*` except `*.README.md`, `data/processed/*` except `.gitkeep`).

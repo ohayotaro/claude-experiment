@@ -99,7 +99,7 @@ Public stable API:
 
 ```python
 def make_run_id() -> str: ...
-def set_seed(seed: int, frameworks: list[str] | None = None) -> None: ...
+def set_seed(seed: int, frameworks: list[str] | None = None) -> dict[str, int]: ...
 def hash_file(path: Path) -> str: ...
 def write_initial_metadata(run_id: str, *, experiment_entry: dict,
                            resolved: dict, args: dict,
@@ -108,6 +108,12 @@ def write_initial_metadata(run_id: str, *, experiment_entry: dict,
 def patch_metadata(run_id: str, **fields) -> None: ...
 def finalize_metadata(run_id: str, exit_state: str) -> None: ...
 ```
+
+`set_seed` returns the resolved `{framework: seed_used}` dict. Pass it into
+`sim.seeds_per_framework` via `patch_metadata` after `write_initial_metadata`
+(or capture it before `write_initial_metadata` and pass via `args` — both are
+valid; the canonical pattern is `set_seed → write_initial_metadata` and let
+the latter populate `sim.seeds_per_framework` from `args["seeds_resolved"]`).
 
 Secondary helpers (used by native launchers and by `/run-experiment` step 5):
 
@@ -119,11 +125,11 @@ def compute_source_tree_hash() -> str: ...
 
 Field ownership is the authoritative table in `.claude/rules/reproducibility.md` §9. Summary:
 
-- `write_initial_metadata` writes everything known before launch:
-  - All top-level fields, including `pid = os.getpid()` (so the orphan-run reaper can distinguish still-running orphans from truly interrupted runs).
-  - The full `sim` block when `execution_target == sim`, populated from `set_seed` + `sys.version` + `importlib.metadata`.
-  - The `device.device_id` and `device.lock_path` (read from `experiment_entry` and from the lock file). The rest of the `device` block (`device_model`, `firmware_rev`, `calibration_ref`, …) is written later by `device-operator` via `patch_metadata`.
-  - The `hil.bench_id`, `hil.bench_lock_path`, `hil.coupling_mode`, `hil.sample_rate_hz`, `hil.simulator` block when `execution_target == hil`. `hil.coupling_mode`, `hil.sample_rate_hz`, `hil.simulator` come from the resolved config snapshot (which must declare them; `config_schema` enforces this). `hil.bench_selfcheck_path` and `hil.interlocks` come later from `device-operator`.
+- `write_initial_metadata` writes a **schema-complete** initial document so that even if the process crashes before the first `patch_metadata`, every required key for the resolved `execution_target` is present (nullable keys are explicitly `null`; the `reproducibility-check` hook distinguishes "key missing" from "key explicitly null while in flight"):
+  - All top-level fields, including `pid = os.getpid()` (so the orphan-run reaper can distinguish still-running orphans from truly interrupted runs). `finished_at`, `exit_state`, `build_id`, `experiment_family`, `sweep_id` are nullable while in flight.
+  - The full `sim` block when `execution_target == sim`: `seed`, `seeds_per_framework` (the dict returned by `set_seed`, passed via `args["seeds_resolved"]`), `python_version`, `package_versions`, plus null placeholders for `mpi_runtime`, `solver_version`, `gpu`, `cuda_version`, `determinism_caveats` (filled by `patch_metadata` when the driver/native binary reports them).
+  - For `execution_target == device`: the full `device` block with `device_id` + `lock_path` populated from `experiment_entry` and null placeholders for `device_model`, `firmware_rev`, `calibration_ref`, `calibration_age_h`, `ambient`, `operator`, plus `dry_run: false` and `safety_overrides: []`. `device-operator` and `/run-experiment` overwrite the placeholders via `patch_metadata` BEFORE any actuation.
+  - For `execution_target == hil`: the `device` block above PLUS a full `hil` block with `bench_id` + `bench_lock_path` populated, `coupling_mode` / `sample_rate_hz` / `simulator` copied from the resolved config snapshot (which must declare them; `config_schema` enforces this), and null placeholders for `bench_selfcheck_path` and `interlocks` (filled by `device-operator`).
   - The `scheduler` block when `compute_target == cluster`, populated from scheduler env vars per `scheduler.kind` (SLURM_JOB_ID, SLURM_JOB_PARTITION, SLURM_JOB_NUM_NODES, etc.). `scheduler.job_script_hash` is read from an env var the skill sets at submission time (`EXPERIMENT_JOB_SCRIPT_SHA256`).
 - `patch_metadata` updates any subset of fields mid-run. It uses an atomic read-modify-write (lock file + `os.replace`) so concurrent writers (driver + device-operator + skill preflight) do not race. Pass nested-dict updates like `patch_metadata(run_id, device={"calibration_ref": "..."})`; the helper merges shallow.
 - `finalize_metadata` writes `finished_at = utcnow()`, `exit_state = <value>`, and `scheduler.walltime_used_s` (when applicable). Idempotent — safe to call from atexit + signal handlers + after a cleanup handler.

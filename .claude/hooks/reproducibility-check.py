@@ -22,16 +22,23 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
 
+_BUILD_ID_RE = re.compile(r"[0-9a-f]{16}")
+
 # Top-level keys required for EVERY run, regardless of execution_target.
+# Source of truth: .claude/rules/reproducibility.md §2.1.
 TOPLEVEL_KEYS: set[str] = {
     "run_id",
     "experiment_id",
+    "experiment_family",
+    "sweep_id",
     "execution_target",
     "started_at",
+    "finished_at",
     "exit_state",
     "pid",
     "git_rev",
@@ -41,8 +48,19 @@ TOPLEVEL_KEYS: set[str] = {
     "args",
     "config_snapshot_path",
     "config_snapshot_sha256",
+    "build_id",
     "compute_target",
     "platform",
+}
+# Keys whose value MAY be null while the run is in flight (between
+# write_initial_metadata and finalize_metadata). The key must still be
+# PRESENT — null is fine; missing is a schema violation.
+NULLABLE_TOPLEVEL_KEYS: set[str] = {
+    "experiment_family",
+    "sweep_id",
+    "finished_at",
+    "exit_state",
+    "build_id",
 }
 
 EXIT_STATES = {"success", "crash", "aborted", "safe-stop", "interrupted"}
@@ -128,19 +146,6 @@ def _check_run_metadata(run_id: str, run_dir: Path, file_being_written: str) -> 
         return
     md_path = run_dir / "metadata.json"
 
-    # We must NOT complain about metadata.json itself being incomplete during
-    # an active write — the writer may be patching it. We only run a partial
-    # check when a non-metadata file is the trigger.
-    if Path(file_being_written).name == "metadata.json":
-        # Light check: parseable + at least run_id present.
-        try:
-            md = json.loads(md_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return
-        if isinstance(md, dict) and "run_id" not in md:
-            _emit(f"{md_path} に run_id がありません。schema は .claude/rules/reproducibility.md を参照してください。")
-        return
-
     if not md_path.exists():
         _emit(
             f"{run_dir}/ に出力があるにもかかわらず metadata.json がありません。"
@@ -158,9 +163,22 @@ def _check_run_metadata(run_id: str, run_dir: Path, file_being_written: str) -> 
         _emit(f"{md_path} のトップレベルが JSON object ではありません。")
         return
 
+    # Full schema validation runs whether the trigger is metadata.json itself
+    # or a peer file. write_initial_metadata is contracted to emit a schema-
+    # complete document at launch (with nullable fields explicitly null), so
+    # missing keys are a real bug even on the initial write.
     missing_top = TOPLEVEL_KEYS - md.keys()
     if missing_top:
         _emit(f"{md_path}: トップレベルの必須キー欠落: {sorted(missing_top)}")
+    null_required = {
+        k for k in (TOPLEVEL_KEYS - NULLABLE_TOPLEVEL_KEYS) - missing_top
+        if md.get(k) is None
+    }
+    if null_required:
+        _emit(
+            f"{md_path}: 非 nullable な必須キーが null になっています: "
+            f"{sorted(null_required)}"
+        )
 
     exit_state = md.get("exit_state")
     if exit_state is not None and exit_state not in EXIT_STATES:
@@ -208,13 +226,6 @@ def _check_build_manifest(build_id: str, build_dir: Path, file_being_written: st
     if not build_dir.exists():
         return
     manifest = build_dir / "manifest.json"
-    if Path(file_being_written).name == "manifest.json":
-        # Trigger is manifest itself — only check parseable.
-        try:
-            json.loads(manifest.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            _emit(f"{manifest}: JSON parse に失敗しました。")
-        return
     if not manifest.exists():
         _emit(
             f"{build_dir}/ にアーティファクトがあるにもかかわらず manifest.json が"
@@ -229,6 +240,9 @@ def _check_build_manifest(build_id: str, build_dir: Path, file_being_written: st
     if not isinstance(m, dict):
         _emit(f"{manifest}: トップレベルが JSON object ではありません。")
         return
+    # Full schema validation runs whether the trigger is manifest.json itself
+    # or a peer file. build-engineer is contracted to emit the complete
+    # manifest atomically (os.replace), so a partial doc on disk is a bug.
     missing = BUILD_TOPLEVEL_KEYS - m.keys()
     if missing:
         _emit(f"{manifest}: 必須キー欠落: {sorted(missing)}")
@@ -237,6 +251,14 @@ def _check_build_manifest(build_id: str, build_dir: Path, file_being_written: st
         _emit(f"{manifest}: exit_state={exit_state!r} は不正です ({sorted(BUILD_EXIT_STATES)} のいずれか)。")
     if exit_state in {"success", "smoke_failed"} and "smoke_test" not in m:
         _emit(f"{manifest}: exit_state={exit_state} の場合 smoke_test ブロックが必須です。")
+    # build_id formula: pure 16-char lowercase hex (no timestamp). See
+    # reproducibility.md §3.1.
+    bid = m.get("build_id")
+    if isinstance(bid, str) and not _BUILD_ID_RE.fullmatch(bid):
+        _emit(
+            f"{manifest}: build_id={bid!r} がスキーマ (16-char lowercase hex) に"
+            "適合していません。reproducibility.md §3.1 を参照。"
+        )
 
 
 def main() -> int:

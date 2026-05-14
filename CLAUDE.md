@@ -223,7 +223,10 @@ source=registry value=cpp-cmake`) so the user can audit which layer answered.
 <!-- ZONE_C_BEGIN -->
 ## Zone C — Session Context
 
-> Updated by `/checkpoint` and by `session-start.py` / `session-end.py` hooks.
+> Updated by `/checkpoint` only. `session-start.py` READS Zone C to print the
+> resume hint; `session-end.py` reads Zone C to check for held locks. Neither
+> hook writes Zone C — that is `/checkpoint`'s job, run intentionally by the
+> user or orchestrator at natural pauses.
 
 ```yaml
 current_phase: not_started      # one of: not_started | design | build | run | collect | analyze | report

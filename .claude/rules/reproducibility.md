@@ -194,17 +194,25 @@ this. The `build_id` is referenced from every run that consumed that build.
 
 ### 3.1 `build_id`
 
-`<UTC ISO-8601 with hyphens>_<8-char hash>` of the source tree plus toolchain
-identifiers. The hash is computed by `build-engineer` over: `git_rev`,
-toolchain strings, build flags, container image digest (if any). Two builds
-with identical inputs produce the same `build_id` (it is content-addressable
-modulo timestamp prefix).
+`build_id` is **purely content-addressable**: a 16-character lowercase hex
+prefix of SHA-256 over the inputs. No timestamp component. The inputs hashed
+by `build-engineer` are:
+
+- `source_tree_hash` (sorted tracked file paths + their SHA-256; see §9.3
+  `compute_source_tree_hash`)
+- Toolchain identifiers and versions (compiler, linker, cmake, mpi)
+- Build flags
+- Container image digest (if any)
+
+Two builds with identical inputs produce **the same** `build_id` and the
+existing build is reused (no rebuild). Build wall-clock is recorded in
+`manifest.started_at` / `manifest.finished_at`; do not encode it in the id.
 
 ### 3.2 `data/builds/<build_id>/manifest.json`
 
 ```json
 {
-  "build_id": "2026-05-14T12-30-00_e5f6a7b8",
+  "build_id": "e5f6a7b801234567",
   "started_at": "2026-05-14T12:29:30Z",
   "finished_at": "2026-05-14T12:30:00Z",
 
@@ -257,8 +265,10 @@ modulo timestamp prefix).
 }
 ```
 
-`toolchain`, `mpi`, `container` blocks are conditionally required: include
-those that were actually used.
+`toolchain` is **always required** for native runs (it captures the compiler
+that produced the binary, even when no MPI / container is involved). `mpi`
+and `container` blocks are conditionally required: include them only when
+actually used.
 
 Manifest `exit_state` enum: `success` (compile OK, smoke test OK) | `smoke_failed` (compile OK, smoke test failed) | `failed` (compile failed; partial manifest written so the failure is traceable).
 
@@ -385,12 +395,12 @@ the manifest.
 template surface; do not rename them in agents or skills.
 
 Public stable API:
-- `make_run_id()` — allocate a `<UTC>_<8-char-hash>` run id
-- `set_seed(seed, frameworks=None)` — set seeds for random / numpy / torch / jax / tf as applicable
-- `hash_file(path)` — SHA-256 of a file
-- `write_initial_metadata(run_id, *, experiment_entry, resolved, args, config_snapshot_path, build_id)` — write the full schema-complete `metadata.json` at launch (including `pid = os.getpid()`)
-- `patch_metadata(run_id, **fields)` — atomic merge of mid-run updates; nested dicts merge shallow
-- `finalize_metadata(run_id, exit_state)` — write `finished_at` + `exit_state` + `scheduler.walltime_used_s` when applicable; idempotent
+- `make_run_id() -> str` — allocate a `<UTC>_<8-char-hash>` run id (timestamp + uniqueness suffix; **not** content-addressable, unlike `build_id`).
+- `set_seed(seed: int, frameworks: list[str] | None = None) -> dict[str, int]` — set seeds for random / numpy / torch / jax / tf as applicable. Returns `{framework: seed_used}` so the caller can record `sim.seeds_per_framework` directly. Frameworks not importable in the current env are skipped silently and absent from the returned dict.
+- `hash_file(path) -> str` — SHA-256 of a file (lowercase hex).
+- `write_initial_metadata(run_id, *, experiment_entry, resolved, args, config_snapshot_path, build_id) -> Path` — write the schema-complete `metadata.json` at launch. Pre-populates every required key for the resolved `execution_target` (including device/hil placeholders that `device-operator` overwrites later via `patch_metadata`) so an early crash never leaves a missing required key. Includes `pid = os.getpid()`.
+- `patch_metadata(run_id, **fields) -> None` — atomic merge of mid-run updates; nested target blocks (`sim`/`device`/`hil`/`scheduler`) merge shallow.
+- `finalize_metadata(run_id, exit_state) -> None` — write `finished_at` + `exit_state` + `scheduler.walltime_used_s` when applicable; idempotent.
 
 Secondary helpers (used by native launchers and by `/run-experiment` step 5):
 - `read_build_manifest(build_id)` — load `data/builds/<build_id>/manifest.json` as a dict
