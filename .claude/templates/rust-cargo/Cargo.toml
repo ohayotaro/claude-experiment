@@ -1,0 +1,15 @@
+# Top-level Cargo workspace — stub copied by /init-experiment when
+# runtime: rust-cargo. Add per-experiment members under src/native/.
+#
+# Layout convention (see .claude/agents/build-engineer.md):
+#   src/native/<experiment_id>/   — heavy Rust crate
+#   target/                       — out-of-tree build directory (gitignored)
+#   data/builds/<build_id>/       — installed binaries + manifest (immutable)
+
+[workspace]
+members = []
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.80"

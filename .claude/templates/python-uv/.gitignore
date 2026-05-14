@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# uv
+uv.lock.bak
+
+# data: raw and processed are local-only by default. results and builds are
+# tracked because they ARE the artifact. Override per project if a result is
+# too large to commit.
+data/raw/*
+!data/raw/.gitkeep
+!data/raw/*.README.md
+data/processed/*
+!data/processed/.gitkeep
+
+# Runtime / OS / IDE
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Build outputs that should not be checked in (in-tree builds).
+# data/builds/<build_id>/ IS tracked — that's the immutable build record.
+build/
+target/

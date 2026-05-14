@@ -1,0 +1,92 @@
+{
+  "experiment-runner": [
+    "implement", "script", "run", "execute", "code this up",
+    "Python", "uv run", "training run", "driver", "entrypoint",
+    "実装", "実行", "スクリプト", "ドライバ"
+  ],
+  "build-engineer": [
+    "build", "compile", "rebuild", "CMake", "Cargo", "Makefile",
+    "toolchain", "linker", "MPI", "OpenMP", "cross-compile",
+    "Dockerfile", "container", "image", "ABI", "linker error",
+    "ビルド", "コンパイル", "ツールチェイン", "コンテナ"
+  ],
+  "device-operator": [
+    "device", "instrument", "DAQ", "oscilloscope", "actuator", "motor",
+    "calibrate", "calibration", "telemetry", "abort", "e-stop",
+    "safe-stop", "interlock", "HIL", "hardware-in-the-loop", "bench",
+    "操作", "実機", "校正", "テレメトリ", "停止", "インターロック"
+  ],
+  "gemini-explore": [
+    "datasheet", "manual", "vendor", "figure", "image", "chart",
+    "screenshot", "video", "transcribe", "extract from PDF",
+    "describe image",
+    "データシート", "マニュアル", "ベンダ", "図", "画像", "動画"
+  ],
+  "data-analyst": [
+    "analyze", "analysis", "p-value", "effect size", "confidence interval",
+    "statistics", "plot", "regression", "ANOVA", "boxplot",
+    "解析", "統計", "効果量", "信頼区間", "プロット"
+  ],
+  "codex-debugger": [
+    "error", "exception", "stacktrace", "traceback", "doesn't work",
+    "debug", "broken", "fails", "crash", "core dump", "segfault",
+    "エラー", "例外", "デバッグ", "クラッシュ"
+  ],
+  "script-reviewer": [
+    "review my script", "review this script", "review the experiment code",
+    "check this analysis script", "pre-run review", "static review",
+    "code review", "data leakage", "leakage check", "check the seed",
+    "スクリプトをレビュー", "コードレビュー", "実行前にチェック",
+    "リーケージ", "再現性チェック"
+  ],
+  "viz-reviewer": [
+    "review the figures", "figure quality", "chart looks", "color choice",
+    "colorblind", "axis label", "figure typography", "redo this plot",
+    "this chart is", "plot review",
+    "図のレビュー", "図の見やすさ", "色覚", "可視化レビュー",
+    "グラフのデザイン", "図表チェック"
+  ],
+  "_skill_hints": {
+    "_comment": "Suggest these skills (not agents) for ad-hoc requests outside the pipeline.",
+    "/ask-gemini": [
+      "quick search", "1本だけ", "1つだけ", "ちょっと調べて",
+      "this PDF", "this figure", "describe image",
+      "この PDF", "この図", "この画像"
+    ],
+    "/ask-codex": [
+      "is this correct", "sanity check", "spot the flaw",
+      "quick review", "this proof", "this argument",
+      "合ってる", "ロジックチェック", "この証明", "この式"
+    ],
+    "/review-script": [
+      "before running", "before /run-experiment", "review before run",
+      "実行前のレビュー", "走らせる前に", "/run-experiment の前に"
+    ],
+    "/review-figures": [
+      "review figures", "review the figures", "check the figures",
+      "are the figures publication-ready",
+      "図を見て", "図表をレビュー", "図のチェック", "可視化を見て"
+    ],
+    "/lint": [
+      "lint", "ruff", "mypy", "pytest", "type check", "format check",
+      "clippy", "clang-tidy",
+      "リント", "型チェック", "フォーマット確認"
+    ],
+    "/build-experiment": [
+      "rebuild", "fresh build", "clean build", "regenerate binary",
+      "再ビルド", "ビルドし直し"
+    ],
+    "/sweep-experiment": [
+      "parameter sweep", "grid search", "scan over", "vary the seed",
+      "パラメータスイープ", "グリッドサーチ", "スキャン"
+    ],
+    "/lock-device": [
+      "lock the device", "claim the bench", "acquire device",
+      "デバイスを確保", "ベンチをロック"
+    ],
+    "/calibrate-device": [
+      "calibrate", "recalibrate", "calibration run",
+      "校正", "再校正"
+    ]
+  }
+}

@@ -1,0 +1,40 @@
+[project]
+name = "experiment"
+version = "0.0.0"
+description = "An experiment-coding project (claude-experiment template)."
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.0",
+    "matplotlib>=3.9",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+analysis = [
+    "pandas>=2.2",
+    "scipy>=1.13",
+]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[tool.uv]
+# `package = false` keeps src/ from being installed as an importable package.
+# Drivers under src/experiments/ bootstrap the import path manually
+# (see .claude/agents/experiment-runner.md §3).
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

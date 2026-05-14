@@ -1,0 +1,19 @@
+# claude-experiment template repo .gitignore
+# (This is the .gitignore for the TEMPLATE itself, not for projects that
+#  consume it. The project-side .gitignore lives at
+#  .claude/templates/python-uv/.gitignore and is copied into each new
+#  project by /init-experiment.)
+
+# Python bytecode from running the hooks/smoke-tests against this repo
+__pycache__/
+*.py[cod]
+
+# Hook log captured if the smoke test runs the session hooks against this dir
+.claude/logs/sessions.log
+.claude/logs/cli/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
