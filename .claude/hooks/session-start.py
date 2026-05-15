@@ -162,6 +162,70 @@ def _reap_orphan_runs(root: Path) -> int:
     return patched
 
 
+def _scan_unacknowledged_unsafe_runs(root: Path) -> list[tuple[str, str, str]]:
+    """Per safety-hil.md §3: any device/HIL run with exit_state in
+    {crash, interrupted} indicates the cleanup handler MAY have been skipped.
+    The next session-start MUST refuse new device runs on the same device
+    until the user confirms the device is in a safe state.
+
+    We do this by leaving a sentinel file at
+        data/locks/<device_id>.unsafe-state-needs-ack
+    whose body is JSON `{run_id, exit_state, device_id, written_at}`. The
+    `safety-check` hook reads this and blocks any new device run on the same
+    device_id. The user clears the sentinel via:
+        rm data/locks/<device_id>.unsafe-state-needs-ack
+    after physically verifying the device, OR a future
+        /lock-device <device_id> --confirm-safe
+    invocation (not yet implemented; the file delete is the manual path).
+
+    Returns the list of (device_id, run_id, exit_state) tuples for which a
+    new sentinel was created this scan.
+    """
+    results_dir = root / "data" / "results"
+    locks_dir = root / "data" / "locks"
+    if not results_dir.is_dir():
+        return []
+    locks_dir.mkdir(parents=True, exist_ok=True)
+    created: list[tuple[str, str, str]] = []
+    for meta_path in results_dir.glob("*/metadata.json"):
+        try:
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if data.get("execution_target") not in ("device", "hil"):
+            continue
+        exit_state = data.get("exit_state")
+        if exit_state not in ("crash", "interrupted"):
+            continue
+        device_id = (data.get("device") or {}).get("device_id") if isinstance(data.get("device"), dict) else None
+        if not device_id:
+            continue
+        sentinel = locks_dir / f"{device_id}.unsafe-state-needs-ack"
+        if sentinel.exists():
+            continue  # already flagged; awaiting user ack
+        # If the operator has previously confirmed via a `.safe-ack` cleared
+        # path, skip. (We do not track that here — manual rm of the sentinel
+        # is the ack signal.)
+        body = {
+            "run_id": data.get("run_id"),
+            "exit_state": exit_state,
+            "device_id": device_id,
+            "written_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "_note": (
+                "Created because the named run ended in 'crash' or 'interrupted', "
+                "which means the cleanup handler may not have run. Verify the "
+                "device is in a safe state, then `rm` this file to clear the "
+                "block. See .claude/rules/safety-hil.md §3."
+            ),
+        }
+        try:
+            sentinel.write_text(json.dumps(body, indent=2), encoding="utf-8")
+            created.append((device_id, str(data.get("run_id")), exit_state))
+        except OSError:
+            continue
+    return created
+
+
 def main() -> int:
     root = _project_root()
     p = root / "CLAUDE.md"
@@ -174,6 +238,7 @@ def main() -> int:
     c = parse_kv(zc.group(1)) if zc else {}
 
     reaped = _reap_orphan_runs(root)
+    unsafe_flagged = _scan_unacknowledged_unsafe_runs(root)
     _write_setup_status(root)
 
     status = b.get("status", "uninitialized")
@@ -202,6 +267,15 @@ def main() -> int:
     ]
     if reaped:
         lines.append(f"[session-start] 中断された run を {reaped} 件、interrupted として記録しました。")
+    if unsafe_flagged:
+        lines.append(
+            f"[session-start] device/HIL の異常終了が {len(unsafe_flagged)} 件あります。"
+            " 物理的に安全状態を確認した上で、対応する "
+            "`data/locks/<device_id>.unsafe-state-needs-ack` を削除してください。"
+            " 削除するまで該当 device での新規 run は `safety-check` フックでブロックされます。"
+        )
+        for device_id, run_id, exit_state in unsafe_flagged:
+            lines.append(f"  - device_id={device_id} run_id={run_id} exit_state={exit_state}")
     print("\n".join(lines))
     return 0
 

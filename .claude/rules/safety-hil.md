@@ -38,17 +38,24 @@ hook covers the subset of these that it can validate (marked HOOK below).
    the prior lock's contents to
    `data/locks/<device_id>.lock.broken-<timestamp>` (same pattern for bench).
 
-2. **Fresh calibration.** [HOOK + SKILL] `calibration_ref` exists under
-   `data/calibrations/` AND `calibration_age_h` is within the experiment's
-   tolerance (declared in `docs/research/methodology.md` per experiment;
-   default 24h). Stale calibration blocks the run.
+2. **Fresh calibration.** [HOOK + SKILL] A calibration sidecar exists at
+   `data/calibrations/<device_id>.latest.json` (written by `/calibrate-device`)
+   AND `(now - performed_at) / 3600 <= tolerance_h` where `tolerance_h` is
+   declared in `docs/research/methodology.md` per experiment (default 24h).
+   Both layers MUST recompute the age from the sidecar's `performed_at`
+   timestamp at check time — a `calibration_age_h` value already written into
+   a prior run's metadata is a frozen snapshot, not the current age, and is
+   NOT a valid input to the freshness check.
 
-3. **Interlocks armed (HIL only).** [SKILL only — hook cannot check]
-   `hil.interlocks.e_stop_armed == true` AND
-   `hil.interlocks.watchdog_ms_used` is a positive integer not exceeding the
-   bench's documented `watchdog_ms_max`. The bench self-check (which
-   `device-operator` runs at session start) must have written
-   `data/locks/<bench_id>.selfcheck.json` within the last hour.
+3. **Interlocks armed (HIL only).** [HOOK: file existence + freshness only |
+   SKILL: full semantic check] The bench self-check artefact
+   `data/locks/<bench_id>.selfcheck.json` must exist and have an mtime within
+   the last hour — the hook verifies both. The semantic content
+   (`hil.interlocks.e_stop_armed == true` AND `hil.interlocks.watchdog_ms_used`
+   is a positive integer not exceeding the bench's documented
+   `watchdog_ms_max`) is parsed and verified by `/run-experiment` step 8.3;
+   the hook deliberately does not parse the JSON since the schema is
+   bench-specific.
 
 4. **Dry-run plan reviewed.** [SKILL only] For any run whose
    `safety_class ∈ {calibration-required, destructive}` (declared in Zone B
@@ -83,7 +90,7 @@ There are exactly three escape hatches. Anything else is a violation.
 |---|---|---|
 | `dry_run: true` in run config | Disables actuation; the run exercises code paths but the `device-operator` interposes a safe-mode wrapper. Safety-check still requires lock + interlocks but waives calibration freshness and operator-confirmation. | Set `dry_run: true` in the experiment config before invoking `/run-experiment`. |
 | `safety_class: none` in Zone B `experiments[]` entry | Declares the experiment never actuates anything destructive (e.g. read-only sensor sweep). Skips operator-confirmation and dry-run requirement. Does NOT skip lock, calibration freshness, or interlock checks. | Set `safety_class: none` in the experiment registry entry. The setting is reviewed by the user during `/init-experiment` / `/design-experiment`. |
-| `--override-safety=<reason>` flag on `/run-experiment` | Allows ONE specific check to be skipped with a recorded justification. Requires `hil_safety_owner` to type the override interactively (cannot be automated). Logged to `metadata.device.safety_overrides[]` with reason and timestamp. | Last-resort manual override. The CHANGELOG entry MUST cite the reason. |
+| `--override-safety=<check_name>:<reason>` flag on `/run-experiment` | Allows ONE specific check to be skipped with a recorded justification. Valid `check_name` values: `calibration`, `dry_run_rehearsal`, `bench_selfcheck`, `cleanup_verdict`. The `lock` and `operator_confirmation` checks CANNOT be overridden. Requires `hil_safety_owner` to type the override interactively (cannot be automated). Logged to `metadata.device.safety_overrides[]` with `{check_name, reason, override_at, operator}`. | Last-resort manual override. The CHANGELOG entry MUST cite the reason. |
 
 There is no global "disable safety" flag.
 

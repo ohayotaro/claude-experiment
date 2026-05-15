@@ -131,7 +131,7 @@ For any run with resolved `execution_target ∈ {device, hil}`, enforcement is l
 | `/run-experiment` skill | Authoritative preflight — resolves config, computes hashes, verifies every precondition in `safety-hil.md` §1, gathers operator confirmation, writes safety fields into metadata. |
 | `device-operator` agent | Operational executor — calibration, bench self-check, telemetry, abort / safe-stop. |
 
-Three escape hatches: `--dry-run` (recorded as `metadata.device.dry_run`), `safety_class: none` (declares a read-only experiment), and `--override-safety=<check>:<reason>` (single-check, logged, requires `hil_safety_owner` to confirm interactively). The lock check and operator-confirmation check cannot be overridden.
+Three escape hatches: `--dry-run` (recorded as `metadata.device.dry_run`), `safety_class: none` (declares a read-only experiment), and `--override-safety=<check_name>:<reason>` (single-check, logged, requires `hil_safety_owner` to confirm interactively). Valid `check_name` values: `calibration`, `dry_run_rehearsal`, `bench_selfcheck`, `cleanup_verdict`. The `lock` and `operator_confirmation` checks cannot be overridden.
 
 Sim, device, and HIL paths are all operational. For device/HIL, run `/lock-device <id>` to acquire the lock, `/calibrate-device <id>` to produce a fresh calibration, then `/run-experiment <id>`. Each non-sim run aborts cleanly if any precondition fails; no unsafe launch is possible.
 

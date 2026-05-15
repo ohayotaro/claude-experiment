@@ -86,7 +86,7 @@ The full routing rules live in `.claude/rules/agent-routing.md`. Hooks under
   `--dry-run` on `/run-experiment` (recorded canonically as
   `metadata.device.dry_run: true` per `.claude/rules/reproducibility.md` §2.3),
   `safety_class: none` in the experiment registry entry, and the
-  `--override-safety=<reason>` flag (single-check, logged, requires
+  `--override-safety=<check_name>:<reason>` flag (single-check, logged, requires
   `hil_safety_owner` to confirm interactively).
 - **Device / HIL runs require a resource lock.** A `device` run holds
   `data/locks/<device_id>.lock`. A `hil` run holds BOTH

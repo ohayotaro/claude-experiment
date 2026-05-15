@@ -103,7 +103,7 @@ Required on success, crash, abort, safe-stop, interrupted. Steps:
    ```
    <ISO-8601> step=<name> status=<ok|warn|fail> detail=<one-line>
    ```
-4. If the cleanup path itself fails (e.g. an actuator does not return to home), DO NOT release the device lock and DO NOT silently exit. Report `status: blocked` and the lock stays held until the human operator acknowledges via `/lock-device --release --force`.
+4. If the cleanup path itself fails (e.g. an actuator does not return to home), DO NOT release the device lock and DO NOT silently exit. Report `status: blocked`. The lock intentionally stays held: this signals to every subsequent `safety-check` invocation that the device is in an unknown state. The recovery path is for the **human operator** to: (a) physically return the device to a safe state, (b) clear any `data/locks/<device_id>.unsafe-state-needs-ack` sentinel left by `session-start.py`, and (c) either run `/lock-device <device_id> --release` from this same session (preferred — the lock is then released cleanly), or terminate this session entirely and use `/lock-device <device_id> --force` (acquire) in a new session to break the now-stale lock and re-acquire. `--force --release` is not a valid combination per `/lock-device`.
 
 ### F. Lock release
 

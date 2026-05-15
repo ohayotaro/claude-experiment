@@ -50,19 +50,45 @@ This skill is the **authoritative preflight layer** per `.claude/rules/safety-hi
    - For `python-uv`, this step is a no-op; `build_id = null`.
 6. **Compute `entrypoint_sha256`** from the registry's `entrypoint` path. The registry MUST point to a stable launcher under `src/` (e.g. `src/experiments/<id>/run.py`), NEVER to a built binary under `data/builds/<build_id>/` — see `.claude/agents/experiment-runner.md` §"Native". If the registry entry violates this, abort with a clear remediation message.
 7. **Write initial metadata** to `data/results/<run_id>/metadata.json` via `src/utils/repro.write_initial_metadata(...)`. This populates everything known before launch (top-level + the appropriate target block skeleton).
-8. **For `execution_target ∈ {device, hil}`, perform the authoritative safety preflight per `safety-hil.md` §1**:
-   1. **Lock verification.** Read `data/locks/<device_id>.lock` (and `data/locks/<bench_id>.lock` for HIL). Verify it is held by this session's PID chain. If not, abort with `status: blocked` and suggest `/lock-device <device_id>`.
-   2. **Calibration freshness.** Read the most recent `data/calibrations/<calibration_ref>.meta.json` for this `device_id` (`calibration_ref` is device-scoped per `/calibrate-device`). Verify `calibration_age_h <= tolerance` (default 24h or per-experiment override in methodology). On stale, abort with the explicit remediation `/calibrate-device <experiment_id>`.
+8. **For `execution_target ∈ {device, hil}`, perform the authoritative safety preflight per `safety-hil.md` §1**.
+
+   **Pre-step: parse `--override-safety` and `--dry-run` first.** Both flags
+   change which sub-steps below MUST run; applying them after the checks
+   would defeat the escape hatch (the run would already have been
+   blocked / launched). Specifically:
+   - Parse `--override-safety=<check_name>:<reason>` into a set of skipped
+     checks. Valid `check_name`: `calibration`, `dry_run_rehearsal`,
+     `bench_selfcheck`, `cleanup_verdict`. Reject any other name. The
+     `lock` and `operator_confirmation` checks are NEVER skippable.
+   - For each parsed override, require `hil_safety_owner` to type the
+     override interactively via `AskUserQuestion` (the answer must be
+     their name from Zone B). Record `{check_name, reason, override_at,
+     operator}` into `metadata.device.safety_overrides[]` via
+     `repro.patch_metadata` BEFORE running the corresponding check so the
+     audit trail survives a crash inside the check.
+   - If `--dry-run` was passed, record `metadata.device.dry_run = true`
+     via `repro.patch_metadata` BEFORE step 8.2.
+
+   Sub-checks (each MAY be skipped per the table below):
+
+   | # | Check | Skipped when |
+   |---|---|---|
+   | 8.1 | Lock verification | never |
+   | 8.2 | Calibration freshness | `--dry-run` OR `--override-safety=calibration` OR `safety_class: none` |
+   | 8.3 | (HIL) Interlocks armed | `--override-safety=bench_selfcheck` |
+   | 8.4 | Dry-run rehearsal equivalence | `--dry-run` OR `--override-safety=dry_run_rehearsal` OR `safety_class ∉ {calibration-required, destructive}` |
+   | 8.5 | Operator-in-loop confirmation | `--dry-run` OR `safety_class != destructive` |
+   | 8.6 | Cleanup-handler verdict | `--override-safety=cleanup_verdict` |
+
+   Sub-step details:
+   1. **Lock verification.** Read `data/locks/<device_id>.lock` (and `data/locks/<bench_id>.lock` for HIL). Verify it is held by this session's PID chain. If not, abort with `status: blocked` and suggest `/lock-device <device_id>`. Lock is NEVER skipped.
+   2. **Calibration freshness.** Read the most recent `data/calibrations/<calibration_ref>.meta.json` for this `device_id` (`calibration_ref` is device-scoped per `/calibrate-device`); compute `age_h = now - performed_at`. Verify `age_h <= tolerance` (default 24h or per-experiment override in methodology). On stale, abort with the explicit remediation `/calibrate-device <experiment_id>`. Do not read `calibration_age_h` from a prior run's metadata — that value is a frozen snapshot, not the current age.
    3. **(HIL) Interlocks armed.** Read `data/locks/<bench_id>.selfcheck.json`. Verify `interlocks.e_stop_armed == true`, `watchdog_ms_used <= watchdog_ms_max`, file mtime within last hour. On failure, request `device-operator` to re-run the self-check (skill A in the agent's workflow).
-   4. **Dry-run rehearsal equivalence.** If `safety_class ∈ {calibration-required, destructive}` AND `--dry-run` is NOT set: scan `data/results/*/metadata.json` for a run with same `experiment_id`, `device.dry_run == true` (per the schema in reproducibility.md §2.3), `exit_state: success`, `config_snapshot_sha256` matching this run's, and `started_at` within the last 24h. If none, abort with a clear message asking the user to first run `/run-experiment <id> --dry-run`. Record the matched `run_id` in `metadata.device.dry_run_rehearsal_run_id`.
-   5. **Operator-in-loop confirmation** (`safety_class: destructive` only). Issue an `AskUserQuestion` to the user requiring an explicit "proceed" / "abort". Record the ISO-8601 UTC timestamp in `metadata.device.operator_confirmation_at`. If aborted, write `exit_state: aborted`, finalize, and return.
+   4. **Dry-run rehearsal equivalence.** Scan `data/results/*/metadata.json` for a run with same `experiment_id`, `device.dry_run == true`, `exit_state: success`, `config_snapshot_sha256` matching this run's, and `started_at` within the last 24h. If none, abort with a clear message asking the user to first run `/run-experiment <id> --dry-run`. Record the matched `run_id` in `metadata.device.dry_run_rehearsal_run_id`.
+   5. **Operator-in-loop confirmation.** Issue an `AskUserQuestion` to the user requiring an explicit "proceed" / "abort". Record the ISO-8601 UTC timestamp in `metadata.device.operator_confirmation_at`. If aborted, write `exit_state: aborted`, finalize, and return. This check is NEVER skipped via `--override-safety`; the only path that skips it is `--dry-run` (no actuation) or `safety_class != destructive`.
    6. **Cleanup-handler verdict.** Look for `data/results/<verdict_run_id>/script_review.json` whose `entrypoint_sha256` matches the current run's `entrypoint_sha256` (field name is `entrypoint_sha256` per `script-reviewer.md`). If absent, invoke `/review-script` synchronously and abort on blockers.
-9. **Apply `--override-safety` if present**:
-   - Parse `<check_name>:<reason>`. Valid check names: `calibration`, `dry_run_rehearsal`, `bench_selfcheck`, `cleanup_verdict`.
-   - Require interactive confirmation typed by `hil_safety_owner` (their name from Zone B).
-   - Record the override under `metadata.device.safety_overrides[]` with `{check_name, reason, override_at, operator}`.
-   - The lock and operator-confirmation checks CANNOT be overridden.
-10. **Set `metadata.device.dry_run = true`** if `--dry-run` was passed.
+9. _(reserved — override parsing now happens inside step 8 pre-step so the audit trail is recorded BEFORE the check it skips.)_
+10. _(reserved — `metadata.device.dry_run` is now stamped inside step 8 pre-step before any conditional check.)_
 11. **Delegate execution**. The skill hands every downstream agent a fully resolved payload, not loose context:
     - To `experiment-runner` (always): `{run_id, experiment_id, run_dir, resolved, config_snapshot_path, build_id, args}` where `resolved` is the dict from step 2 and `run_dir = data/results/<run_id>/`.
     - To `device-operator` (device/hil only): the same payload plus `{device_id, bench_id (hil only), hardware_spec_path (= docs/research/hardware/<bench_id>.md for hil or <device_id>.md for device), watchdog_ms_max (read from the hardware spec), calibration_tolerance_h}`.

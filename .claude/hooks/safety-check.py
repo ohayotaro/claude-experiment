@@ -38,11 +38,30 @@ import os
 import re
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 CALIBRATION_FRESHNESS_DEFAULT_H = 24.0
 BENCH_SELFCHECK_FRESHNESS_H = 1.0
+
+
+def _parse_iso8601_utc(s: str) -> float | None:
+    """Parse an ISO-8601 UTC string ('...Z' or '+00:00') into epoch seconds.
+    Returns None if the string is unparseable.
+    """
+    if not isinstance(s, str):
+        return None
+    try:
+        # datetime.fromisoformat doesn't accept the trailing 'Z' suffix
+        # before Python 3.11, but does on 3.12+. Normalize defensively.
+        normalized = s.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(normalized)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+    except (ValueError, TypeError):
+        return None
 
 
 def _project_root() -> Path:
@@ -230,46 +249,48 @@ def _check_lock(lock_path: Path) -> tuple[bool, str | None]:
 def _check_calibration(entry: dict[str, Any]) -> str | None:
     """Return a reason string if calibration is missing/stale; else None.
 
-    The hook reads the most recent run's metadata for this experiment to get
-    the last-used calibration_ref. If no prior run exists, the hook skips this
-    check (the skill will enforce it).
+    Source of truth: the calibration sidecar at
+    `data/calibrations/<device_id>.latest.json`, written by `/calibrate-device`
+    with `{calibration_ref, performed_at, tolerance_h}`. The hook recomputes
+    `now - performed_at` so the freshness check reflects the CURRENT time —
+    NOT a frozen `calibration_age_h` from a prior run's metadata, which would
+    forever return the value-at-write-time.
+
+    If the sidecar is missing, the hook returns a reason string pointing the
+    user at `/calibrate-device` (the skill will enforce equivalently, but the
+    coarse gate catches direct Bash launches sooner).
     """
-    exp_id = entry.get("id")
-    if not exp_id:
+    device_id = entry.get("device_id")
+    if not device_id:
         return None
-    results_dir = _project_root() / "data" / "results"
-    if not results_dir.is_dir():
-        return None
-    last_meta: dict[str, Any] | None = None
-    last_mtime = 0.0
-    for p in results_dir.glob("*/metadata.json"):
+    sidecar = _project_root() / "data" / "calibrations" / f"{device_id}.latest.json"
+    if not sidecar.exists():
+        return (
+            f"calibration sidecar {sidecar} がありません。"
+            " `/calibrate-device <experiment_id>` を実行してください。"
+        )
+    try:
+        data = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return f"calibration sidecar {sidecar} の JSON parse に失敗しました。"
+    if not isinstance(data, dict):
+        return f"calibration sidecar {sidecar} の形式が不正です (object ではありません)。"
+    performed_at = _parse_iso8601_utc(data.get("performed_at", ""))
+    if performed_at is None:
+        # Fall back to file mtime if performed_at is unusable.
         try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if data.get("experiment_id") != exp_id:
-            continue
-        try:
-            mt = p.stat().st_mtime
+            performed_at = sidecar.stat().st_mtime
         except OSError:
-            continue
-        if mt > last_mtime:
-            last_mtime = mt
-            last_meta = data
-    if last_meta is None:
-        return None
-    device_blk = last_meta.get("device", {})
-    cal_ref = device_blk.get("calibration_ref")
-    cal_age = device_blk.get("calibration_age_h")
-    if not cal_ref:
-        return "前回 run の calibration_ref が記録されていません。"
-    cal_path = _project_root() / "data" / "calibrations" / cal_ref
-    if not cal_path.exists():
-        # cal_ref may be a hash; we only check if it looks like a filename.
-        if "/" in cal_ref or cal_ref.endswith((".json", ".yaml", ".yml", ".csv", ".npz")):
-            return f"参照されている calibration ファイル {cal_path} がありません。"
-    if isinstance(cal_age, (int, float)) and cal_age > CALIBRATION_FRESHNESS_DEFAULT_H:
-        return f"校正情報が古い: 前回 run 時点で calibration_age_h={cal_age:.1f}h"
+            return f"calibration sidecar {sidecar} の performed_at が読めません。"
+    tolerance_h = data.get("tolerance_h", CALIBRATION_FRESHNESS_DEFAULT_H)
+    if not isinstance(tolerance_h, (int, float)) or tolerance_h <= 0:
+        tolerance_h = CALIBRATION_FRESHNESS_DEFAULT_H
+    age_h = (time.time() - performed_at) / 3600.0
+    if age_h > tolerance_h:
+        return (
+            f"校正情報が古い: age={age_h:.1f}h > tolerance={tolerance_h:.1f}h。"
+            " `/calibrate-device <experiment_id>` で再校正してください。"
+        )
     return None
 
 
@@ -336,6 +357,18 @@ def main() -> int:
             f"experiment {entry.get('id')} は execution_target={entry.get('execution_target')} ですが、"
             "Zone B 登録に device_id がありません。`/init-experiment` で再登録してください。"
         )
+
+    # Per safety-hil.md §3: refuse new device runs while the post-crash
+    # "needs-ack" sentinel exists. The user clears it by `rm`-ing the file
+    # after physically confirming the device is in a safe state.
+    ack_sentinel = _project_root() / "data" / "locks" / f"{device_id}.unsafe-state-needs-ack"
+    if ack_sentinel.exists():
+        return _block(
+            f"device_id={device_id} に直前の異常終了 (crash / interrupted) の未確認フラグが"
+            f" 残っています。物理的に安全状態を確認した上で {ack_sentinel} を削除してから"
+            " 再度実行してください。詳細は .claude/rules/safety-hil.md §3 を参照。"
+        )
+
     lock_path = _project_root() / "data" / "locks" / f"{device_id}.lock"
     held, why = _check_lock(lock_path)
     if not held:
@@ -356,7 +389,7 @@ def main() -> int:
 
     cal = _check_calibration(entry)
     if cal:
-        return _block(cal + " `/calibrate-device` を実行してください。")
+        return _block(cal)
 
     return 0
 
