@@ -25,14 +25,16 @@ For ANY runtime, the following are copied from `python-uv/`:
 | `python-uv/pyproject.toml` | `pyproject.toml` | uv project skeleton with `package = false`. |
 | `python-uv/.gitignore` | `.gitignore` | Excludes `.venv/`, `data/raw/*`, `data/processed/*`, in-tree `build/` and `target/`. |
 
-When `runtime != python-uv`, the runtime-specific stub is copied additionally:
+When `runtime != python-uv`, the runtime-specific stub is copied additionally, plus a `_smoke` hello-world so build-engineer can compile + smoke-test on first invocation (before any real experiment is registered):
 
 | Runtime | Additional copy |
 |---|---|
-| `cpp-cmake` | `cpp-cmake/CMakeLists.txt` → repo root |
-| `rust-cargo` | `rust-cargo/Cargo.toml` → repo root |
-| `make` | `make/Makefile` → repo root |
+| `cpp-cmake` | `cpp-cmake/CMakeLists.txt` → repo root, `cpp-cmake/_smoke/` → `src/native/_smoke/` |
+| `rust-cargo` | `rust-cargo/Cargo.toml` → repo root, `rust-cargo/_smoke/` → `src/native/_smoke/` |
+| `make` | `make/Makefile` → repo root, `make/_smoke/main.c` → `src/native/_smoke/main.c` |
 | `mixed` | None at init; `/design-experiment` handles per-experiment native bootstrap. |
+
+The `_smoke` directory is intentionally minimal — `main.{cpp,rs,c}` prints a single line and supports `--version` (which is what build-engineer invokes for the `manifest.smoke_test` field). Users can `rm -rf src/native/_smoke` (and drop the corresponding `add_subdirectory` / `members` reference) once they have their first real native experiment.
 
 ## Adding a new runtime
 

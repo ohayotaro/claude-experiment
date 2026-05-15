@@ -1,0 +1,15 @@
+# Smoke crate. Copied verbatim to src/native/_smoke/Cargo.toml by
+# /init-experiment when runtime: rust-cargo. build-engineer invokes
+# `cargo run -p smoke-test -- --version` (or the built `smoke-test` binary
+# under target/release/) as the manifest.smoke_test command.
+
+[package]
+name = "smoke-test"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "smoke-test"
+path = "src/main.rs"

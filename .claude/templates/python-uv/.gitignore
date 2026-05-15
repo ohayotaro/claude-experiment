@@ -7,7 +7,9 @@ __pycache__/
 .ruff_cache/
 .pytest_cache/
 
-# uv
+# uv. `uv.lock` itself MUST be committed (it is the reproducibility source
+# of truth — see pyproject.toml header). Only ignore the backup uv writes
+# during conflict resolution.
 uv.lock.bak
 
 # data: raw and processed are local-only by default. results and builds are

@@ -5,9 +5,15 @@
 #   src/native/<experiment_id>/   — heavy Rust crate
 #   target/                       — out-of-tree build directory (gitignored)
 #   data/builds/<build_id>/       — installed binaries + manifest (immutable)
+#
+# The `_smoke` member ships a minimal hello-world that build-engineer can
+# compile + smoke-test before any real experiment exists. This proves the
+# toolchain is wired up and `manifest.smoke_test` has something meaningful
+# to record. Drop `_smoke` from `members` once you have a real experiment
+# (or keep it — it's a 10-line crate).
 
 [workspace]
-members = []
+members = ["src/native/_smoke"]
 resolver = "2"
 
 [workspace.package]

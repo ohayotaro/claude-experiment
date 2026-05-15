@@ -61,10 +61,12 @@ Initializes an experimental codebase from the orchestrator template. The orchest
    - `src/experiments/__init__.py`, `src/analysis/__init__.py`, `src/utils/__init__.py` (empty).
    - **Runtime-scoped starter scripts**. The launcher (Python) and the analysis layer are common across all runtimes, so `repro.py` and `viz.py` are always copied from `.claude/templates/python-uv/` regardless of `runtime`. Runtime-specific files are added on top:
      - For `python-uv`: just `repro.py` and `viz.py`.
-     - For `cpp-cmake`: same Python helpers + a top-level `CMakeLists.txt` stub.
-     - For `rust-cargo`: same Python helpers + a `Cargo.toml` stub with a workspace pointing at `src/native/`.
-     - For `make`: same Python helpers + a top-level `Makefile` stub.
+     - For `cpp-cmake`: same Python helpers + a top-level `CMakeLists.txt` stub + a `src/native/_smoke/` directory containing a minimal hello-world (`CMakeLists.txt` + `main.cpp`) so `build-engineer` has something to compile before any real experiment exists.
+     - For `rust-cargo`: same Python helpers + a top-level `Cargo.toml` workspace + a `src/native/_smoke/` member (`Cargo.toml` + `src/main.rs`) — same purpose as above.
+     - For `make`: same Python helpers + a top-level `Makefile` + a `src/native/_smoke/main.c` — same purpose.
      - For `mixed`: same Python helpers; native bootstrap is deferred to `/design-experiment` per experiment.
+
+     The `_smoke` directory is a hello-world. `build-engineer` compiles it on first invocation to verify the toolchain is wired up and to produce a non-empty `manifest.smoke_test`. Users can delete `src/native/_smoke/` (and the `add_subdirectory` / `members` line) once they have their first real experiment.
 
      `repro.py` implements the six public functions in `.claude/rules/reproducibility.md` §9.3 (`make_run_id`, `set_seed`, `hash_file`, `write_initial_metadata`, `patch_metadata`, `finalize_metadata`) plus the three secondary read helpers (`read_build_manifest`, `verify_binary_hash`, `compute_source_tree_hash`).
    - `tests/test_smoke.py` — imports each src module to check the package is wired.
@@ -72,7 +74,8 @@ Initializes an experimental codebase from the orchestrator template. The orchest
    - `.gitignore` from `.claude/templates/<runtime>/.gitignore` if it exists, else a generic one (always ignore: `build/`, `target/`, `__pycache__/`, `*.pyc`, `.venv/`, `data/raw/*` except `*.README.md`, `data/processed/*` except `.gitkeep`).
 7. **Append** to `.claude/logs/init-experiment.log` an ISO-stamped record.
 8. **Update Zone C** of `CLAUDE.md` to set `current_phase: design` and `next_action: "Run /design-experiment to register your first experiment"`.
-9. **Report** to the user (Japanese) a summary: paths created, next suggested skill, plus a reminder to commit (`git add -A && git commit -m "init experiment scaffold"`) — but do not run git commands without confirmation.
+9. **Run `uv sync`** if the resolved runtime touches Python (so all native runtimes too, since the Python analysis layer is universal). This produces `uv.lock` from `pyproject.toml`. The lockfile is the deterministic source of truth for `sim.package_versions` — `repro.write_initial_metadata` reads from the active env, but the lockfile is what makes that env reproducible on another machine.
+10. **Report** to the user (Japanese) a summary: paths created, next suggested skill, plus a reminder to commit (`git add -A && git commit -m "init experiment scaffold"`) including `uv.lock` — but do not run git commands without confirmation. Explicitly mention that `uv.lock` MUST be committed; otherwise re-running the same experiment on another machine will silently install different package versions.
 
 ## Idempotence rules
 
@@ -104,4 +107,13 @@ For `runtime: python-uv`:
 | `.claude/templates/python-uv/pyproject.toml` | `pyproject.toml` (only if absent) |
 | `.claude/templates/python-uv/.gitignore` | `.gitignore` (only if absent) |
 
-For native runtimes, the same pattern applies with the runtime-specific build manifest stub (`CMakeLists.txt`, `Cargo.toml`, `Makefile`).
+For native runtimes, the same pattern applies with the runtime-specific build manifest stub PLUS the smoke directory:
+
+| Runtime | Copy from | Copy to |
+|---|---|---|
+| `cpp-cmake` | `.claude/templates/cpp-cmake/CMakeLists.txt` | `CMakeLists.txt` |
+| `cpp-cmake` | `.claude/templates/cpp-cmake/_smoke/` | `src/native/_smoke/` |
+| `rust-cargo` | `.claude/templates/rust-cargo/Cargo.toml` | `Cargo.toml` |
+| `rust-cargo` | `.claude/templates/rust-cargo/_smoke/` | `src/native/_smoke/` |
+| `make` | `.claude/templates/make/Makefile` | `Makefile` |
+| `make` | `.claude/templates/make/_smoke/main.c` | `src/native/_smoke/main.c` |

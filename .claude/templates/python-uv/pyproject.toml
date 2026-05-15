@@ -1,3 +1,18 @@
+# Reproducibility note (claude-experiment template):
+#
+# This file uses `>=` lower bounds for direct dependencies. The DETERMINISTIC
+# source of truth for what versions actually get installed is `uv.lock`,
+# which `uv sync` writes after resolving the dependency graph. Commit
+# `uv.lock` alongside this file — it is what `repro.write_initial_metadata`
+# records into every run's `sim.package_versions` and what `data-analyst`
+# expects when re-running an analysis on a different machine.
+#
+# Pinning with `==` here instead would force every project to bump the
+# template before adopting a security patch; keeping `>=` here AND committing
+# `uv.lock` is the established uv workflow and gives both freshness on the
+# template side and bit-for-bit reproducibility on the project side. See
+# `.claude/rules/reproducibility.md` §5 (Seed policy) and §6 (Determinism).
+
 [project]
 name = "experiment"
 version = "0.0.0"
