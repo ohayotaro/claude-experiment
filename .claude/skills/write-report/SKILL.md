@@ -34,7 +34,7 @@ When the user explicitly passes `--kind <memo|datacard|paper>` while Zone B says
 
 ## Steps for the orchestrator
 
-1. **Resolve `--kind`.** Use `--kind` if passed (any of `memo | datacard | paper`); else Zone B `reports.default_kind`. If resolved to `none`, refuse per the policy above.
+1. **Resolve `--kind`.** Use `--kind` if passed (any of `memo | datacard | paper`); else Zone B `reports.default_kind`. If resolved to `none`, refuse per the policy above. For `kind: paper`, also resolve `paper_format` from Zone B `reports.paper_format` (default `markdown_bibtex`; alternative `latex`). The format selects the draft file extension and skeleton (`draft.md` vs `main.tex`).
 2. **Resolve `--scope`.**
    - `<run_id>` → single-run report (memo only).
    - `<sweep_id>` → sweep-level report (memo or datacard).
@@ -128,7 +128,7 @@ When `paper_format: markdown_bibtex`, the skeleton is the IMRaD sections (Introd
 - **Figures live in `data/results/<run_id>/figures/`** and are referenced by relative path. The report does NOT copy figures into `docs/reports/`; this is a hard rule because copies drift.
 - **Excluded runs are listed in the report**, not hidden. Selective inclusion is `research-integrity.md` violation.
 - **The skill never auto-submits** anywhere. A `paper` draft is a draft.
-- **`docs/reports/` is gitignored by default for `kind: paper`** until the user explicitly commits (papers under review are confidential; data cards typically are not). The skill warns about this once.
+- **The skill never modifies `.gitignore`.** Whether a paper draft should be tracked is a project-by-project decision (papers under double-blind review are typically confidential; preprints and data cards typically are not). On the first `paper` invocation the skill emits a one-time advisory in Japanese reminding the user to consider `.gitignore`'ing `docs/reports/paper/<slug>/` if the venue requires it; the user owns the decision.
 
 ## Examples
 

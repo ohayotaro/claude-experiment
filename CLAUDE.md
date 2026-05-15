@@ -184,6 +184,7 @@ ethics:
 reports:
   default_kind: memo             # memo | datacard | paper | none — "none" means this project does not produce reports as a deliverable; /write-report will refuse to run
   target_venue: null             # only used when default_kind == paper
+  paper_format: markdown_bibtex  # markdown_bibtex | latex — only used when default_kind == paper or --kind=paper is passed to /write-report
 
 viz_preferences:
   default_profile: default       # default | publication | presentation | <custom>

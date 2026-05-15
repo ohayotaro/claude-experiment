@@ -21,25 +21,60 @@ Never modify `data/results/<run_id>/raw/` or `metadata.json`.
 
 ## Inputs
 
-- `methodology.md` — gives you the pre-registered analysis plan.
+- `methodology.md` — gives you the pre-registered analysis plan, including the experiment's `inference_kind`.
 - `data/results/<run_id>/` — the experiment outputs.
+- `inference_kind` (forwarded by `/analyze-results`) — one of `comparison` | `sweep-inference` | `descriptive` | `none`. Determines which branch of §2 below applies.
 
 ## Workflow
 
 ### 1. Verify pre-registration
 
-Open `methodology.md`. List the pre-registered tests, primary outcome, multiple-comparison rule, and outlier rule. Anything you do that is **not** in this list is exploratory and must be labeled as such.
+Open `methodology.md`. Note the `inference_kind` (it gates everything below). List the pre-registered tests, primary outcome, multiple-comparison rule, and outlier rule. Anything you do that is **not** in this list is exploratory and must be labeled as such.
 
-### 2. Run the confirmatory analysis
+### 2. Run the analysis (branch on inference_kind)
 
-Implement the pre-registered tests in `src/analysis/<name>_analysis.py`. For each test, report:
+`statistical-rigor.md` activates conditionally on `inference_kind`. The
+agent MUST honor the branch and refuse to produce inference statistics
+where the rule does not authorize them; doing so produces a false
+confirmatory record. Implement the analysis in
+`src/analysis/<name>_analysis.py`.
 
+**Branch A — `inference_kind ∈ {comparison, sweep-inference}` (full
+inference, statistical-rigor.md applies fully)**
+
+For each pre-registered test report:
 - **Test name** and assumptions checked (with checks shown in code).
 - **n** (after pre-registered exclusions).
 - **Effect size** (Cohen's d, η², R², odds ratio — appropriate to the test).
 - **95% CI** (or credible interval).
-- **p-value** with multiple-comparison correction applied.
+- **p-value** with multiple-comparison correction applied
+  (Holm–Bonferroni / BH-FDR per the rule; for `sweep-inference` treat the
+  sweep as a family of comparisons by default).
 - **Interpretation** in one sentence: "supports H1 / does not support / inconclusive".
+
+**Branch B — `inference_kind: descriptive` (descriptive only,
+statistical-rigor.md applies partially)**
+
+Report ONLY:
+- **n** (after pre-registered exclusions).
+- **Point estimate** (mean / median / proportion — whichever the
+  pre-registered primary outcome calls for).
+- **Dispersion** (SD / IQR / range).
+- **95% CI of the point estimate** (bootstrap or analytic; declare which).
+- Plain-language summary; do NOT make group-comparison claims.
+
+You MUST refuse to compute p-values, effect sizes, or hypothesis-test
+verdicts in this branch even if the user requests them in chat. Offer to
+re-register the experiment as `comparison` if they actually want a test.
+
+**Branch C — `inference_kind: none` (demo / smoke test)**
+
+Produce only sanity-check output: did the run complete, did expected
+files exist, did key invariants hold (e.g. no NaN, output shape matches
+config). NO statistical claims, NO p-values, NO effect sizes, NO CIs.
+The output of this branch is a one-paragraph "smoke check passed" note
+plus, if useful, a single descriptive figure with no inferential
+annotation. Refuse statistical questions outright.
 
 ### 3. Figures
 
@@ -86,11 +121,16 @@ If you discover something unexpected, you may run additional tests, but in `anal
 
 ### 5. Write analysis.md
 
+Use the template matching the `inference_kind` branch. The headings are
+load-bearing — `/write-report` and downstream readers grep on them.
+
+**Template A (Branch A — `comparison` / `sweep-inference`)**
+
 ```markdown
 # Analysis: <run_id>
 
 ## Pre-registered analysis
-<methodology snapshot reference>
+<methodology snapshot reference; cite inference_kind explicitly>
 
 ## Results — confirmatory
 ### Primary outcome: <name>
@@ -115,6 +155,45 @@ If you discover something unexpected, you may run additional tests, but in `anal
 
 ## Conclusion w.r.t. H<n>
 One paragraph.
+```
+
+**Template B (Branch B — `descriptive`)**
+
+```markdown
+# Analysis: <run_id>
+
+## Pre-registered analysis
+inference_kind: descriptive (no group-comparison claims)
+<methodology snapshot reference>
+
+## Results — descriptive
+### Primary outcome: <name>
+- n = ..., point estimate = ..., dispersion = ..., 95% CI = [..., ...]
+- Plain-language summary (NO group comparison, NO p-value).
+
+### Secondary outcomes
+...
+
+## Figures
+- Figure 1: <caption>
+
+## Diagnostics
+- Outliers (count, applied rule): ...
+- Missingness: ...
+```
+
+**Template C (Branch C — `none`)**
+
+```markdown
+# Smoke check: <run_id>
+
+inference_kind: none — no statistical claims are made in this section.
+
+- Completed: yes / no
+- Expected files present: yes / no  (list)
+- Key invariants: ...
+
+Status: smoke-passed | smoke-failed
 ```
 
 ## Handoff
