@@ -23,7 +23,7 @@ Catches chart-type misuse, palette problems, axis dishonesty, and unreadable typ
    - If the user gives a single figure path, scope to that one figure.
    - Otherwise, default to the most recent `run_id` under `data/results/` that contains a non-empty `figures/` subdirectory.
 2. **Pre-flight.**
-   - Gemini availability via `.claude/logs/setup-status.json`. If absent, abort and inform the user — Claude cannot reliably critique rendered figures alone. Suggest installing Gemini CLI or skipping this skill.
+   - Gemini availability via `.claude/logs/setup-status.json` (`gemini_available`). If Gemini is unavailable, return `status: blocked` with the missing dependency named. **Do not silently substitute Claude** — `agent-routing.md` §"Fallback policy" forbids skill-level degradation. The orchestrator decides whether to ask the user to install Gemini CLI, skip the review, or accept a Claude-only critique with a recorded quality warning (acknowledging that Claude cannot reliably critique rendered images alone).
    - Verify `data/results/<run_id>/figures/` exists and has at least one figure.
 3. **Launch** `viz-reviewer` with the run_id (or single path).
 4. **Receive** the structured review. Surface to the user (in Japanese, polite, no emojis):

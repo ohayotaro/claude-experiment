@@ -70,4 +70,9 @@ Then return to the caller a structured markdown summary with explicit source URL
 
 ## Fallback
 
-If `gemini` is missing from PATH (check `.claude/logs/setup-status.json`), fail loudly. Do not silently downgrade to web search via Claude — report to the caller so they can choose.
+Read `.claude/logs/setup-status.json` (`gemini_available`). If the value is
+`false`, `null`, or absent, emit `status: blocked` with the missing
+dependency named and the probe's `gemini_reason` if recorded. **Never
+silently downgrade to Claude `WebFetch` or any other in-process retrieval.**
+Per `.claude/rules/agent-routing.md` §"Fallback policy", the orchestrator
+(not this agent) decides what to do next.

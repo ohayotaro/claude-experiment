@@ -17,7 +17,7 @@ A lightweight escape hatch to Codex outside the formal `/review-script` and `/de
 
 ## Steps for the orchestrator
 
-1. **Check Codex availability.** Read `.claude/logs/setup-status.json`. If `codex_available: false`, warn the user and offer to fall back to a Claude subagent acting as a strict critic (weaker).
+1. **Check Codex availability.** Read `.claude/logs/setup-status.json` (`codex_available`). If Codex is unavailable, return `status: blocked` with the missing dependency named. **Do not silently substitute a Claude subagent.** Per `agent-routing.md` §"Fallback policy", the orchestrator (not this skill) decides whether to ask the user to install Codex, explicitly invoke a Claude subagent as a critic with a recorded quality warning, or skip the call.
 2. **Frame the question for Codex.** Codex performs better with explicit role + format. Default prompt scaffold:
    ```
    You are a strict logical / statistical / mathematical reviewer. Given the

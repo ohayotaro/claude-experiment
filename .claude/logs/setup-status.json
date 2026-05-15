@@ -1,0 +1,11 @@
+{
+  "$schema_version": "1",
+  "_note": "Probed and overwritten by .claude/hooks/session-start.py on each session start. This file is checked in as a documented stub so skills/agents can rely on its presence; the session-start hook replaces it with real values. Skills MUST read this file (not the PATH directly) to decide whether Codex / Gemini are available — see .claude/rules/agent-routing.md §'Fallback policy'.",
+  "probed_at": null,
+  "codex_available": null,
+  "codex_path": null,
+  "codex_version": null,
+  "gemini_available": null,
+  "gemini_path": null,
+  "gemini_version": null
+}

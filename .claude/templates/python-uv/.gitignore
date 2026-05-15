@@ -29,3 +29,11 @@ data/processed/*
 # data/builds/<build_id>/ IS tracked — that's the immutable build record.
 build/
 target/
+
+# Per-machine probe output written by .claude/hooks/session-start.py. The
+# template ships a documented stub at this path; the hook rewrites it on
+# each session start. Different machines have different Codex/Gemini paths,
+# so it does not belong in version control.
+.claude/logs/setup-status.json
+.claude/logs/cli/
+.claude/logs/sessions.log

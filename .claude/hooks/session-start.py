@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -30,6 +32,69 @@ KV_RE = re.compile(r"^\s*([a-zA-Z_][\w]*)\s*:\s*(.+?)\s*$", re.MULTILINE)
 # finished_at == null AND mtime older than this AND whose recorded PID (if any)
 # is no longer running is patched to exit_state=interrupted.
 ORPHAN_GRACE_H = 1.0
+
+# External CLI partners probed once per session and recorded into
+# .claude/logs/setup-status.json so skills/agents can read a single source
+# of truth instead of probing the PATH themselves.
+_PROBED_CLIS = ("codex", "gemini")
+
+
+def _probe_cli(name: str) -> dict[str, object]:
+    """Best-effort check for one external CLI. Returns a small dict suitable
+    for inclusion in setup-status.json.
+
+    Never raises: the probe is advisory. A timeout or non-zero exit yields
+    `available: false` with the reason recorded.
+    """
+    path = shutil.which(name)
+    if not path:
+        return {"available": False, "path": None, "version": None, "reason": "not on PATH"}
+    try:
+        proc = subprocess.run(
+            [name, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+        )
+    except (subprocess.TimeoutExpired, OSError) as e:
+        return {
+            "available": False,
+            "path": path,
+            "version": None,
+            "reason": f"version probe failed: {e!r}",
+        }
+    version = (proc.stdout or proc.stderr or "").strip().splitlines()[0] if (proc.stdout or proc.stderr) else None
+    return {
+        "available": proc.returncode == 0,
+        "path": path,
+        "version": version,
+        "reason": None if proc.returncode == 0 else f"exit={proc.returncode}",
+    }
+
+
+def _write_setup_status(root: Path) -> None:
+    """Probe known external CLIs and write .claude/logs/setup-status.json.
+
+    Skills MUST read this file (not the PATH directly) so the orchestrator
+    can short-circuit decisions cleanly. See .claude/rules/agent-routing.md
+    §"Fallback policy".
+    """
+    out: dict[str, object] = {
+        "$schema_version": "1",
+        "probed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    for name in _PROBED_CLIS:
+        result = _probe_cli(name)
+        out[f"{name}_available"] = bool(result["available"])
+        out[f"{name}_path"] = result["path"]
+        out[f"{name}_version"] = result["version"]
+        if result.get("reason"):
+            out[f"{name}_reason"] = result["reason"]
+    target = root / ".claude" / "logs" / "setup-status.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    tmp.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, target)
 
 
 def parse_kv(block: str) -> dict[str, str]:
@@ -109,6 +174,7 @@ def main() -> int:
     c = parse_kv(zc.group(1)) if zc else {}
 
     reaped = _reap_orphan_runs(root)
+    _write_setup_status(root)
 
     status = b.get("status", "uninitialized")
     if status == "uninitialized":

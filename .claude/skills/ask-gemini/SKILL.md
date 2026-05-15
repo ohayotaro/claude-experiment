@@ -18,7 +18,7 @@ A lightweight escape hatch to Gemini for quick lookups. **Does not modify any `d
 
 ## Steps for the orchestrator
 
-1. **Check Gemini availability.** Read `.claude/logs/setup-status.json`. If `gemini_available: false`, warn the user and offer to fall back to Claude `WebFetch` (less capable for PDFs / images).
+1. **Check Gemini availability.** Read `.claude/logs/setup-status.json` (`gemini_available`). If Gemini is unavailable, return `status: blocked` with the missing dependency named. **Do not silently substitute Claude `WebFetch` or any other in-process retrieval** — `agent-routing.md` §"Fallback policy" forbids skill-level degradation. The orchestrator (not this skill) decides whether to ask the user to install Gemini CLI, accept a degraded substitute with a recorded quality warning, or skip the lookup.
 2. **Translate the user's intent into a structured Gemini prompt.** Always specify output format. Defaults:
    - "find vendor docs for X" → request a JSON list of N hits with `title, source_url, vendor, document_kind, one_paragraph_summary`. Mark unofficial mirrors.
    - "describe this figure / image / capture" → markdown with axis labels, units, key trends, numerical values where extractable.

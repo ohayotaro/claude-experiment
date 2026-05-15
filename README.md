@@ -79,7 +79,7 @@ Native runtimes additionally need (per-experiment basis):
 | `rust-cargo` | `rustc ≥1.80` / `cargo` |
 | `make` | GNU make + whatever the Makefile invokes |
 
-Codex and Gemini are recommended but not blocking. Without Codex, `/review-script`, `/ask-codex`, and `codex-debugger` fall back to Opus subagents acting as critics (weaker). Without Gemini, `/review-figures` and `/ask-gemini` emit `status: blocked` and the orchestrator decides.
+Codex and Gemini are strongly recommended. When either CLI is unavailable, the skills and agents that depend on it emit `status: blocked` instead of silently degrading — see `.claude/rules/agent-routing.md` §"Fallback policy". The orchestrator (with the user) then decides whether to install the missing CLI, accept an explicit Claude-subagent substitute with a recorded quality warning, or pause. Hard rule: no skill or agent may substitute Claude / `WebFetch` for Codex or Gemini on its own.
 
 ## What gets copied into your project
 

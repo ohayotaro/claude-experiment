@@ -20,7 +20,7 @@ The pre-run review pass. Catches statistical errors, data leakage, missing repro
 
 1. **Resolve the target.** The user names a path (or asks "review the latest experiment script" — in that case, take the most recently modified file under `src/experiments/`).
 2. **Pre-flight.**
-   - Codex availability check via `.claude/logs/setup-status.json`. If missing, warn the user and offer a Claude-subagent fallback (weaker).
+   - Codex availability check via `.claude/logs/setup-status.json` (`codex_available`). If Codex is unavailable, return `status: blocked` with the missing dependency clearly stated. **Do not silently substitute a Claude subagent** — `agent-routing.md` §"Fallback policy" makes this an orchestrator-level decision, not a skill-level decision. The orchestrator may then choose (with the user) to (a) ask the user to install Codex, (b) explicitly invoke a Claude subagent as a critic with a recorded quality warning, or (c) skip the review.
    - Verify the script path exists and is under `src/experiments/` or `src/analysis/`.
    - For experiment scripts: verify `docs/research/methodology.md` exists. If not, abort and suggest `/design-experiment` first — a script without a locked methodology cannot be reviewed against intended design.
 3. **Launch** `script-reviewer` with the script path and any user-specified focus area.

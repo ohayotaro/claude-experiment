@@ -83,9 +83,30 @@ When a hook surfaces a delegation suggestion, it implies the orchestrator will p
 
 ## Fallback policy (single source of truth)
 
-When an external CLI partner is unavailable (`codex_available: false` or `gemini_available: false` in `.claude/logs/setup-status.json`):
+The authoritative availability record is `.claude/logs/setup-status.json`. It
+is overwritten by `.claude/hooks/session-start.py` once per session via a
+direct `--version` probe. Skills, agents, and hooks MUST read this file
+rather than probing PATH themselves; this keeps the decision boundary
+single-sourced.
 
-1. The agent that needs the partner **fails loudly** with a clear `status: blocked` handoff and reports the missing dependency.
-2. The orchestrator (not the agent) then decides whether to (a) ask the user to install/auth the CLI, (b) substitute an Opus subagent acting in the missing role with a reduced quality warning, or (c) pause the pipeline.
+| `codex_available` / `gemini_available` value | How skills must treat it |
+|---|---|
+| `true` | Proceed; the CLI is on PATH and responded to `--version`. |
+| `false` | Refuse with `status: blocked`. Report the missing dependency and the probe's recorded `*_reason`. |
+| `null` (probe has not run; e.g. stub file before first session-start) | Refuse with `status: blocked`. Tell the user to start a new Claude Code session so the hook can probe. Do NOT proceed optimistically. |
+| key missing entirely | Treat as `null` (stub from an older template). |
 
-Agents must NOT silently degrade to a Claude `WebFetch` or other in-process fallback. Silent degradation has produced inconsistent retrieval policy in similar templates. The `research-keyword-detector`-class hooks print a warning but do not enact a fallback.
+When a skill / agent surfaces `status: blocked`:
+
+1. The agent / skill **fails loudly** with a clear `status: blocked` handoff
+   naming the missing dependency.
+2. The **orchestrator** (not the skill or agent) then decides, with the
+   user, whether to (a) ask the user to install / auth the CLI, (b)
+   explicitly invoke a Claude subagent as a critic-of-last-resort with a
+   recorded quality warning, or (c) pause the pipeline.
+
+Skills and agents MUST NOT silently degrade to a Claude subagent, Claude
+`WebFetch`, or any other in-process retrieval / critique. Silent
+degradation has produced inconsistent retrieval policy in similar
+templates and is forbidden here. The `research-keyword-detector`-class
+hooks print a warning but do not enact a fallback.
