@@ -11,8 +11,17 @@ Japanese (project policy in .claude/rules/language.md).
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
+
+# Single-ASCII-word keywords like "run" / "script" / "figure" / "image" /
+# "chart" / "python" / "plot" appear inside unrelated prompts very often and
+# over-trigger naive substring matching. For these, require word-boundary
+# matches. Multi-word phrases ("review my script", "/run-experiment", etc.)
+# already have natural boundaries and Japanese keywords don't carve into
+# Latin word-boundary regex, so we keep substring matching for those.
+_SINGLE_WORD_ASCII = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 
 
 def _project_root() -> Path:
@@ -31,13 +40,26 @@ def load_routing_table() -> dict[str, list[str]]:
         return {}
 
 
+def _keyword_matches(prompt_lower: str, keyword: str) -> bool:
+    """Match `keyword` against `prompt_lower`. Single-word ASCII keywords use
+    word-boundary regex to avoid over-triggering on substrings (e.g. "run"
+    inside "running" or "Trunk"). Multi-word phrases and non-ASCII (Japanese,
+    Chinese, etc.) keywords use plain substring matching — word boundaries
+    don't behave the way we want for those.
+    """
+    kw = keyword.lower()
+    if _SINGLE_WORD_ASCII.match(kw):
+        return re.search(r"\b" + re.escape(kw) + r"\b", prompt_lower) is not None
+    return kw in prompt_lower
+
+
 def _scan(prompt_lower: str, mapping: dict[str, list[str]]) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     for name, keywords in mapping.items():
         if name.startswith("_") or not isinstance(keywords, list):
             continue
         for kw in keywords:
-            if isinstance(kw, str) and kw.lower() in prompt_lower:
+            if isinstance(kw, str) and _keyword_matches(prompt_lower, kw):
                 out.append((name, kw))
                 break
     return out

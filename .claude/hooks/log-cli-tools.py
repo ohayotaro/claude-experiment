@@ -56,8 +56,19 @@ def redact(text: str) -> str:
         return text
     for pat, repl in _REDACT_PATTERNS:
         text = pat.sub(repl, text)
-    if len(text.encode("utf-8", errors="ignore")) > MAX_BLOCK_BYTES:
-        text = text[: MAX_BLOCK_BYTES // 2] + "\n...[TRUNCATED]...\n"
+    data = text.encode("utf-8", errors="ignore")
+    if len(data) > MAX_BLOCK_BYTES:
+        # Keep BOTH the head and tail of long output. Build / runtime
+        # failures put the actual error (traceback frames, ldd diagnostics,
+        # MPI exit lines) at the TAIL; a head-only truncation would lose
+        # the bit that matters most for later forensic review. Allocate
+        # 1/3 to head (command echo / target identification) and 2/3 to
+        # tail.
+        keep_head = MAX_BLOCK_BYTES // 3
+        keep_tail = MAX_BLOCK_BYTES - keep_head
+        head = data[:keep_head].decode("utf-8", errors="replace")
+        tail = data[-keep_tail:].decode("utf-8", errors="replace")
+        text = head + "\n...[TRUNCATED HEAD+TAIL]...\n" + tail
     return text
 
 
